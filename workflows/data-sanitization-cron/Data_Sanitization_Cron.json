@@ -1,45 +1,715 @@
 {
   "name": "Data_Sanitization_Cron",
+  "meta": {
+    "description": "Scheduled mailbox hygiene. Classifier flags candidates; dry-run logs them, then a Telegram approve/deny gate precedes any delete. Read-only fetch credential is separate from the delete credential. Corrected per PRD 3.7 / 6.1 (blocking)."
+  },
   "nodes": [
     {
+      "id": "n-cron",
       "name": "Chron_Scheduler",
       "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1280,
+        80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n-config",
+      "name": "Workflow_Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1080,
+        80
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "enabled",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c2",
+              "name": "dry_run",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c3",
+              "name": "DRY_RUN_UNTIL",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "c4",
+              "name": "model",
+              "value": "gemini-2.0-flash",
+              "type": "string"
+            },
+            {
+              "id": "c5",
+              "name": "min_confidence",
+              "value": 0.9,
+              "type": "number"
+            },
+            {
+              "id": "c6",
+              "name": "APPROVAL_TIMEOUT_HOURS",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "c7",
+              "name": "fetch_query",
+              "value": "in:inbox newer_than:7d -in:important -in:sent -in:starred",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "notes": "T1.3: dry_run flag is flipped to false by the operator after reviewing DRY_RUN_UNTIL runs of logged candidates."
+    },
+    {
+      "id": "n-gate",
+      "name": "Enabled_Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
         -880,
         80
-      ]
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
     },
     {
-      "name": "Gmail_Fetch_Flagged",
+      "id": "n-fetch",
+      "name": "Gmail_Fetch_Candidates",
       "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
-        -672,
+        -680,
         80
-      ]
+      ],
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 50,
+        "filters": {
+          "q": "={{ $('Workflow_Config').item.json.fetch_query }}"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_READONLY_CRED",
+          "name": "Gmail (sanitization READ-ONLY)"
+        }
+      },
+      "notes": "T1.13: this credential holds gmail.readonly ONLY. It cannot delete."
     },
     {
+      "id": "n-gemini",
+      "name": "Scam_Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        280
+      ],
+      "parameters": {
+        "modelName": "={{ $('Workflow_Config').item.json.model }}",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_GEMINI_CRED",
+          "name": "Google Gemini account"
+        }
+      }
+    },
+    {
+      "id": "n-classify",
+      "name": "Scam_Classifier",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.1,
+      "position": [
+        -480,
+        80
+      ],
+      "parameters": {
+        "text": "=From: {{ $json.from && $json.from.value ? $json.from.value[0].address : $json.From }}\nSubject: {{ $json.subject || $json.Subject }}\n\n{{ $json.snippet || $json.textPlain || $json.text }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"verdict\",\n    \"confidence\",\n    \"reason\"\n  ],\n  \"properties\": {\n    \"verdict\": {\n      \"enum\": [\n        \"scam\",\n        \"junk\",\n        \"legit\"\n      ]\n    },\n    \"confidence\": {\n      \"type\": \"number\"\n    },\n    \"reason\": {\n      \"type\": \"string\"\n    }\n  }\n}",
+        "options": {
+          "systemPromptTemplate": "Classify the email. verdict='scam' for phishing/fraud/impersonation; 'junk' for unsolicited bulk/promotional with no value; 'legit' for anything a person might want. confidence is 0..1. reason is one sentence. Be conservative: when unsure, verdict='legit'."
+        }
+      }
+    },
+    {
+      "id": "n-merge",
+      "name": "Attach_Message_Id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const v = $json.output ?? $json;\nconst src = $('Gmail_Fetch_Candidates').item.json;\nreturn { message_id: src.id, thread_id: src.threadId, subject: src.subject || src.Subject,\n         from: (src.from && src.from.value && src.from.value[0] && src.from.value[0].address) || src.From || '',\n         date: src.date || src.Date, verdict: v.verdict, confidence: v.confidence, reason: v.reason };"
+      }
+    },
+    {
+      "id": "n-filter",
+      "name": "Deletion_Candidate_Filter",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -80,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "loose",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ $json.verdict }}",
+              "rightValue": "legit",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "f2",
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": "={{ $('Workflow_Config').item.json.min_confidence }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-dryif",
+      "name": "Dry_Run_Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        140,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "d1",
+              "leftValue": "={{ $('Workflow_Config').item.json.dry_run }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-audit-dry",
+      "name": "Audit_DryRun_Candidate",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        360,
+        -60
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "data-sanitization-cron",
+            "run_id": "={{ $execution.id }}",
+            "action": "dry_run_candidate",
+            "target": "={{ $json.message_id }}",
+            "reason": "={{ $json.verdict + ' (' + $json.confidence + '): ' + $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "skipped",
+            "detail": "={{ 'from=' + $json.from + ' subject=' + $json.subject }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-agg",
+      "name": "Aggregate_Candidates",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        360,
+        200
+      ],
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "message_id"
+            },
+            {
+              "fieldToAggregate": "from"
+            },
+            {
+              "fieldToAggregate": "subject"
+            },
+            {
+              "fieldToAggregate": "confidence"
+            },
+            {
+              "fieldToAggregate": "reason"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-fmt",
+      "name": "Format_Approval_Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $json.message_id || [];\nif (!rows.length) return [{ json: { count: 0, text: 'No deletion candidates this run.' } }];\nconst lines = rows.map((id,i)=>`${i+1}. ${$json.from[i]} — ${$json.subject[i]} (conf ${$json.confidence[i]}) — ${$json.reason[i]}`);\nreturn [{ json: { count: rows.length, message_ids: rows, text: `${rows.length} email(s) flagged for deletion:\\n\\n` + lines.join('\\n') + '\\n\\nApprove to delete all, Deny to keep all.' } }];"
+      }
+    },
+    {
+      "id": "n-approve",
+      "name": "Telegram_Approval_Gate",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        200
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "chatId": "REPLACE_TELEGRAM_CHAT_ID",
+        "message": "=⚠️ Data Sanitization — approval required\n\n{{ $json.text }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "buttonApproveLabel": "Approve delete",
+            "buttonDisapproveLabel": "Deny"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": "={{ $('Workflow_Config').item.json.APPROVAL_TIMEOUT_HOURS }}",
+              "resumeUnit": "hours"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "Telegram bot"
+        }
+      },
+      "notes": "T1.3: nothing is deleted until a human approves. Timeout resumes as 'not approved'."
+    },
+    {
+      "id": "n-approved-if",
+      "name": "Was_Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "loose",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.data && $json.data.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-split",
+      "name": "Split_Approved",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        120
+      ],
+      "parameters": {
+        "fieldToSplitOut": "message_ids",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "n-delete",
       "name": "Gmail_Delete_Op",
       "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
-        -464,
-        80
-      ]
+        1360,
+        120
+      ],
+      "parameters": {
+        "operation": "delete",
+        "messageId": "={{ $json.message_ids }}",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_DELETE_CRED",
+          "name": "Gmail (sanitization DELETE)"
+        }
+      },
+      "notes": "T1.13: separate credential with https://mail.google.com/ scope, used ONLY here, downstream of the approval gate."
     },
     {
-      "name": "Data_Aggregation",
-      "type": "n8n-nodes-base.summarize",
+      "id": "n-audit-del",
+      "name": "Audit_Delete",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
-        -272,
-        80
-      ]
+        1560,
+        120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "data-sanitization-cron",
+            "run_id": "={{ $execution.id }}",
+            "action": "email_delete",
+            "target": "={{ $json.message_ids }}",
+            "reason": "classifier flagged, human approved",
+            "actor": "system",
+            "approved_by": "={{ $('Telegram_Approval_Gate').item.json.data.approverName || 'telegram-approver' }}",
+            "outcome": "success",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     },
     {
-      "name": "Telegram_Executive_Alert",
+      "id": "n-audit-deny",
+      "name": "Audit_Denied",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1160,
+        320
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "data-sanitization-cron",
+            "run_id": "={{ $execution.id }}",
+            "action": "email_delete",
+            "target": "={{ ($json.message_ids || []).join(',') }}",
+            "reason": "human denied deletion",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "denied",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-notify",
+      "name": "Telegram_Run_Summary",
       "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
-        -64,
-        80
-      ]
+        1760,
+        120
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "REPLACE_TELEGRAM_CHAT_ID",
+        "text": "=Data Sanitization run {{ $execution.id }} complete.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "id": "n-errctx",
+      "name": "Error_Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -280,
+        320
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "workflow",
+              "value": "data-sanitization-cron",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "run_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e4",
+              "name": "action",
+              "value": "classifier_failure",
+              "type": "string"
+            },
+            {
+              "id": "e5",
+              "name": "target",
+              "value": "={{ $json.message_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "e6",
+              "name": "reason",
+              "value": "={{ $json.error && $json.error.message ? $json.error.message : 'classifier error' }}",
+              "type": "string"
+            },
+            {
+              "id": "e7",
+              "name": "actor",
+              "value": "system",
+              "type": "string"
+            },
+            {
+              "id": "e8",
+              "name": "approved_by",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e9",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "e10",
+              "name": "detail",
+              "value": "no deletion attempted",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-erraudit",
+      "name": "Error_Audit_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -60,
+        320
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "run_id": "={{ $json.run_id }}",
+            "action": "={{ $json.action }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "failed",
+            "detail": "={{ $json.detail }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     }
   ],
   "connections": {
@@ -47,14 +717,170 @@
       "main": [
         [
           {
-            "node": "Gmail_Fetch_Flagged",
+            "node": "Workflow_Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gmail_Fetch_Flagged": {
+    "Workflow_Config": {
+      "main": [
+        [
+          {
+            "node": "Enabled_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enabled_Gate": {
+      "main": [
+        [
+          {
+            "node": "Gmail_Fetch_Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Gmail_Fetch_Candidates": {
+      "main": [
+        [
+          {
+            "node": "Scam_Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scam_Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Scam_Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scam_Classifier": {
+      "main": [
+        [
+          {
+            "node": "Attach_Message_Id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Error_Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach_Message_Id": {
+      "main": [
+        [
+          {
+            "node": "Deletion_Candidate_Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deletion_Candidate_Filter": {
+      "main": [
+        [
+          {
+            "node": "Dry_Run_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry_Run_Gate": {
+      "main": [
+        [
+          {
+            "node": "Audit_DryRun_Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate_Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate_Candidates": {
+      "main": [
+        [
+          {
+            "node": "Format_Approval_Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format_Approval_Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram_Approval_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram_Approval_Gate": {
+      "main": [
+        [
+          {
+            "node": "Was_Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was_Approved": {
+      "main": [
+        [
+          {
+            "node": "Split_Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audit_Denied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split_Approved": {
       "main": [
         [
           {
@@ -69,18 +895,29 @@
       "main": [
         [
           {
-            "node": "Data_Aggregation",
+            "node": "Audit_Delete",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Data_Aggregation": {
+    "Audit_Delete": {
       "main": [
         [
           {
-            "node": "Telegram_Executive_Alert",
+            "node": "Telegram_Run_Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Context": {
+      "main": [
+        [
+          {
+            "node": "Error_Audit_Write",
             "type": "main",
             "index": 0
           }
@@ -89,6 +926,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
 }

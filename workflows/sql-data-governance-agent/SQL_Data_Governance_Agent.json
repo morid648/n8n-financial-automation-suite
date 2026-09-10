@@ -1,73 +1,455 @@
 {
   "name": "SQL_Data_Governance_Agent",
+  "meta": {
+    "description": "LLM agent runs read-only SQL data-quality checks against PostgreSQL, one per batch, and returns a structured verdict. Corrected per PRD 3.2 + 5.1: language model + read-only Postgres tool + output parser wired; batch loop-back closed."
+  },
   "nodes": [
     {
+      "id": "n-trigger",
       "name": "Manual_Trigger",
       "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
       "position": [
-        -1232,
-        16
-      ]
+        -1280,
+        0
+      ],
+      "parameters": {}
     },
     {
+      "id": "n-config",
+      "name": "Workflow_Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1080,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "model",
+              "value": "claude-sonnet-5",
+              "type": "string"
+            },
+            {
+              "id": "c2",
+              "name": "max_batch_size",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "c3",
+              "name": "max_tokens",
+              "value": 1500,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-checks",
+      "name": "Load_Check_Definitions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Read-only data-quality checks. Each is a name + a SELECT the agent runs via the Postgres tool.\nconst checks = [\n  { check_id: 'null_pct_customers_email', check_name: 'Null rate on customers.email', table: 'customers', column: 'email',\n    sql: \"SELECT count(*) FILTER (WHERE email IS NULL)::float / NULLIF(count(*),0) AS metric, count(*) AS total FROM customers\", threshold: 0.02 },\n  { check_id: 'orphan_orders_customer_id', check_name: 'Orders with no matching customer', table: 'orders', column: 'customer_id',\n    sql: \"SELECT count(*) AS metric FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE c.id IS NULL\", threshold: 0 },\n  { check_id: 'dup_invoice_number', check_name: 'Duplicate invoice numbers', table: 'invoices', column: 'invoice_number',\n    sql: \"SELECT count(*) AS metric FROM (SELECT invoice_number FROM invoices GROUP BY invoice_number HAVING count(*) > 1) d\", threshold: 0 },\n  { check_id: 'negative_amounts', check_name: 'Negative invoice amounts', table: 'invoices', column: 'amount',\n    sql: \"SELECT count(*) AS metric FROM invoices WHERE amount < 0\", threshold: 0 },\n  { check_id: 'future_dated_txns', check_name: 'Transactions dated in the future', table: 'transactions', column: 'txn_date',\n    sql: \"SELECT count(*) AS metric FROM transactions WHERE txn_date > now()\", threshold: 0 }\n];\nreturn checks.map(c => ({ json: c }));"
+      }
+    },
+    {
+      "id": "n-split",
       "name": "Data_Splitter",
       "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
       "position": [
-        -704,
-        16
-      ]
+        -680,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "check_id,check_name,table,column,sql,threshold",
+        "include": "allOtherFields",
+        "options": {}
+      }
     },
     {
-      "name": "Data_Merge_Join",
-      "type": "n8n-nodes-base.merge",
-      "position": [
-        176,
-        352
-      ]
-    },
-    {
+      "id": "n-batch",
       "name": "Batch_Iterator",
       "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
       "position": [
-        160,
-        -112
-      ]
+        -460,
+        0
+      ],
+      "parameters": {
+        "batchSize": "={{ $('Workflow_Config').item.json.max_batch_size }}",
+        "options": {}
+      }
     },
     {
-      "name": "Schema_Validation_Parser",
-      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "id": "n-llm",
+      "name": "LLM_Inference_Engine",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
       "position": [
-        1072,
-        112
-      ]
+        -160,
+        220
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Workflow_Config').item.json.model }}",
+          "mode": "id"
+        },
+        "options": {
+          "maxTokensToSample": "={{ $('Workflow_Config').item.json.max_tokens }}",
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_ANTHROPIC_CRED",
+          "name": "Anthropic account"
+        }
+      },
+      "notes": "PRD 3.2 fix: wired to the agent via ai_languageModel."
     },
     {
-      "name": "Data_Aggregator",
-      "type": "n8n-nodes-base.aggregate",
-      "position": [
-        368,
-        352
-      ]
-    },
-    {
-      "name": "NLP_Financial_Agent",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "position": [
-        784,
-        -112
-      ]
-    },
-    {
+      "id": "n-pg",
       "name": "PostgreSQL_Query_Engine",
       "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.5,
       "position": [
-        944,
-        96
-      ]
+        40,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $fromAI('sql', 'A single read-only SELECT statement') }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_PG_READONLY_CRED",
+          "name": "Postgres (READ-ONLY role)"
+        }
+      },
+      "notes": "T1.13: credential must point at a role with SELECT only and default_transaction_read_only = on."
+    },
+    {
+      "id": "n-parser",
+      "name": "Schema_Validation_Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        220
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"check_id\",\n    \"table\",\n    \"status\",\n    \"severity\",\n    \"row_count\",\n    \"summary\"\n  ],\n  \"properties\": {\n    \"check_id\": {\n      \"type\": \"string\"\n    },\n    \"check_name\": {\n      \"type\": \"string\"\n    },\n    \"table\": {\n      \"type\": \"string\"\n    },\n    \"column\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ]\n    },\n    \"status\": {\n      \"enum\": [\n        \"pass\",\n        \"warn\",\n        \"fail\"\n      ]\n    },\n    \"severity\": {\n      \"enum\": [\n        \"info\",\n        \"low\",\n        \"medium\",\n        \"high\",\n        \"critical\"\n      ]\n    },\n    \"row_count\": {\n      \"type\": \"integer\"\n    },\n    \"metric\": {\n      \"type\": [\n        \"number\",\n        \"null\"\n      ]\n    },\n    \"threshold\": {\n      \"type\": [\n        \"number\",\n        \"null\"\n      ]\n    },\n    \"summary\": {\n      \"type\": \"string\"\n    },\n    \"remediation\": {\n      \"type\": \"string\"\n    }\n  }\n}"
+      }
+    },
+    {
+      "id": "n-agent",
+      "name": "NLP_Financial_Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Run this data-quality check and return the verdict.\n\ncheck_id: {{ $json.check_id }}\nname: {{ $json.check_name }}\ntable: {{ $json.table }}\ncolumn: {{ $json.column }}\ncandidate SQL: {{ $json.sql }}\nthreshold: {{ $json.threshold }}",
+        "options": {
+          "systemMessage": "You are a data-governance agent with READ-ONLY Postgres access via the PostgreSQL_Query_Engine tool. Run only SELECT statements — never INSERT/UPDATE/DELETE/DDL. Execute the candidate SQL (adjust only if it is not valid SELECT), compare the resulting metric against the threshold, and set status: pass if within threshold, warn if marginally over, fail if clearly over. Set severity by business impact. row_count = the violating/affected row count. Provide a one-paragraph summary and a concrete remediation. Return only JSON matching the schema."
+        }
+      }
+    },
+    {
+      "id": "n-collect",
+      "name": "Collect_Verdict",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        120,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "v1",
+              "name": "verdict",
+              "value": "={{ JSON.stringify($json.output ?? $json) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-agg",
+      "name": "Data_Aggregator",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        360,
+        -120
+      ],
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "verdict"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-report",
+      "name": "Governance_Report_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        -120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "governance_runs",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "run_id": "={{ $execution.id }}",
+            "verdicts_json": "={{ JSON.stringify($json.verdict) }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-audit",
+      "name": "Audit_Log_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        760,
+        -120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "sql-data-governance-agent",
+            "run_id": "={{ $execution.id }}",
+            "action": "governance_run",
+            "target": "={{ ($json.verdict || []).length + ' checks' }}",
+            "reason": "manual run",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "success",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-errctx",
+      "name": "Error_Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        120,
+        200
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "workflow",
+              "value": "sql-data-governance-agent",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "run_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e4",
+              "name": "action",
+              "value": "agent_failure",
+              "type": "string"
+            },
+            {
+              "id": "e5",
+              "name": "target",
+              "value": "={{ $json.check_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "e6",
+              "name": "reason",
+              "value": "={{ $json.error && $json.error.message ? $json.error.message : 'agent error' }}",
+              "type": "string"
+            },
+            {
+              "id": "e7",
+              "name": "actor",
+              "value": "system",
+              "type": "string"
+            },
+            {
+              "id": "e8",
+              "name": "approved_by",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e9",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "e10",
+              "name": "detail",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-erraudit",
+      "name": "Error_Audit_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        340,
+        200
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "run_id": "={{ $json.run_id }}",
+            "action": "={{ $json.action }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "failed",
+            "detail": "={{ $json.detail }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     }
   ],
   "connections": {
     "Manual_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Workflow_Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow_Config": {
+      "main": [
+        [
+          {
+            "node": "Load_Check_Definitions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_Check_Definitions": {
       "main": [
         [
           {
@@ -93,8 +475,48 @@
       "main": [
         [
           {
+            "node": "Data_Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "NLP_Financial_Agent",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM_Inference_Engine": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL_Query_Engine": {
+      "ai_tool": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schema_Validation_Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_outputParser",
             "index": 0
           }
         ]
@@ -104,18 +526,60 @@
       "main": [
         [
           {
-            "node": "Data_Merge_Join",
+            "node": "Collect_Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Error_Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Data_Merge_Join": {
+    "Collect_Verdict": {
       "main": [
         [
           {
-            "node": "Data_Aggregator",
+            "node": "Batch_Iterator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_Aggregator": {
+      "main": [
+        [
+          {
+            "node": "Governance_Report_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Governance_Report_Write": {
+      "main": [
+        [
+          {
+            "node": "Audit_Log_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Context": {
+      "main": [
+        [
+          {
+            "node": "Error_Audit_Write",
             "type": "main",
             "index": 0
           }
@@ -124,6 +588,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
 }

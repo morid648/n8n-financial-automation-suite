@@ -16,7 +16,9 @@ Webhook-triggered RAG workflow. Classifies unstructured sentiment via vector sea
 
 ## Node reference
 
-_TBD — populate from `Market_Sentiment_Engine.json`._ One of four workflows sharing an identical skeleton (PRD 3.1).
+Same corrected RAG shape as the reference workflow ([`../analyst-screening-pipeline/`](../analyst-screening-pipeline/)): agent → `Flatten_Sentiment → Master_Ledger_Update (sentiment_scores) → Audit_Log_Write → Respond_To_Caller`, ingest branch to `Vector_DB_Insert`, `onError` branch to Slack.
+
+Sub-connections wired: `LLM_Inference_Engine` (Anthropic, `claude-haiku-4-5`) `ai_languageModel`; `Context_Memory_Buffer` `ai_memory`; `Vector_Retrieval_Tool` (`sentiment_corpus_search`) `ai_tool`; `Schema_Validation_Parser` `ai_outputParser` (T1.11 `{score, category, confidence, entity, source_snippet}`); `Cohere_Vector_Embeddings` `ai_embedding`.
 
 ## Required credentials
 
@@ -26,16 +28,13 @@ _TBD — populate from `Market_Sentiment_Engine.json`._ One of four workflows sh
 
 ## Known gaps
 
-- Shares a byte-for-byte identical skeleton with 3 other workflows — no sentiment-specific logic yet (PRD 3.1).
-- LangChain sub-connections missing (PRD 3.2).
-- `NLP_Financial_Agent` has no incoming main connection — needs a bridge node (PRD 3.3).
-- `Context_Memory_Buffer` wired on the main path instead of `ai_memory` (PRD 3.4).
-- Sentiment output schema not defined.
+- PRD 3.1/3.2/3.3/3.4 **fixed** in the current JSON.
+- Not yet run end-to-end (Phase 6). Credential IDs are `REPLACE_*` placeholders.
+- Pinecone index `market-sentiment` (namespace `sentiment`) must exist before first run.
 
 ## Setup steps
 
 1. Import `Market_Sentiment_Engine.json`.
-2. Add all credentials above.
-3. Apply the fixes in [`../../docs/LANGCHAIN_WIRING_CHECKLIST.md`](../../docs/LANGCHAIN_WIRING_CHECKLIST.md).
-4. Layer in the sentiment-classification prompt + T1.11 schema.
-5. Test against 5–10 unstructured sentiment snippets before going live.
+2. Replace every `REPLACE_*` placeholder with real credentials / IDs in n8n.
+3. Create the Pinecone index and ledger tabs `sentiment_scores` + `audit_log`.
+4. Test against 5–10 unstructured sentiment snippets; confirm `score` ∈ [-1,1] and the overlay can key on `entity` + `as_of`.

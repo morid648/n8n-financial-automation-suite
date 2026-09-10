@@ -1,97 +1,646 @@
 {
   "name": "Investor_Relations_NLP",
+  "meta": {
+    "description": "Distills stakeholder communications into a structured executive summary (key asks, sentiment, urgency, owner). Corrected per PRD 3.1-3.4."
+  },
   "nodes": [
     {
+      "id": "n-ingest",
       "name": "Ingest_API_Payload",
       "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
       "position": [
-        -300,
-        0
-      ]
-    },
-    {
-      "name": "Text_Chunking_Engine",
-      "type": "@n8n/n8n-nodes-langchain.textSplitterCharacterTextSplitter",
-      "position": [
-        -130,
+        -1180,
         0
       ],
       "parameters": {
-        "chunkSize": 400,
-        "chunkOverlap": 40
+        "httpMethod": "POST",
+        "path": "investor-relations/intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "investor-relations-intake"
+    },
+    {
+      "id": "n-config",
+      "name": "Workflow_Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -980,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "enabled",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c2",
+              "name": "model",
+              "value": "claude-sonnet-5",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "max_tokens",
+              "value": 1200,
+              "type": "number"
+            },
+            {
+              "id": "c4",
+              "name": "top_k",
+              "value": 8,
+              "type": "number"
+            },
+            {
+              "id": "c5",
+              "name": "chunk_size",
+              "value": 400,
+              "type": "number"
+            },
+            {
+              "id": "c6",
+              "name": "chunk_overlap",
+              "value": 40,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
       }
     },
     {
+      "id": "n-gate",
+      "name": "Enabled_Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -780,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-bridge",
+      "name": "Bridge_Agent_Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -560,
+        -120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "text",
+              "value": "={{ $json.body.text || $json.body.content || $json.body.message }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "sessionId",
+              "value": "={{ $json.body.sessionId || $json.body.id || $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "b3",
+              "name": "source_ref",
+              "value": "={{ $json.body.source_ref || $json.body.id || $execution.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "notes": "PRD 3.3 fix: gives NLP_Financial_Agent a real main-path input."
+    },
+    {
+      "id": "n-split",
+      "name": "Text_Chunking_Engine",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        300
+      ],
+      "parameters": {
+        "chunkSize": "={{ $('Workflow_Config').item.json.chunk_size }}",
+        "chunkOverlap": "={{ $('Workflow_Config').item.json.chunk_overlap }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "n-loader",
+      "name": "Document_Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        -380,
+        300
+      ],
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $('Bridge_Agent_Input').item.json.text }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "source_ref",
+                "value": "={{ $('Bridge_Agent_Input').item.json.source_ref }}"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "n-embed",
       "name": "Cohere_Vector_Embeddings",
       "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
       "position": [
-        70,
-        0
-      ]
+        -180,
+        420
+      ],
+      "parameters": {
+        "modelName": "embed-english-v3.0"
+      },
+      "credentials": {
+        "cohereApi": {
+          "id": "REPLACE_COHERE_CRED",
+          "name": "Cohere account"
+        }
+      }
     },
     {
+      "id": "n-vinsert",
       "name": "Vector_DB_Insert",
       "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.1,
       "position": [
-        270,
-        0
-      ]
+        -180,
+        180
+      ],
+      "parameters": {
+        "mode": "insert",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "investor-relations",
+          "mode": "list"
+        },
+        "options": {
+          "pineconeNamespace": "stakeholder-comms"
+        }
+      },
+      "credentials": {
+        "pineconeApi": {
+          "id": "REPLACE_PINECONE_CRED",
+          "name": "Pinecone account"
+        }
+      }
     },
     {
-      "name": "Vector_DB_Query",
-      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
-      "position": [
-        270,
-        -180
-      ]
-    },
-    {
+      "id": "n-vretrieve",
       "name": "Vector_Retrieval_Tool",
-      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.1,
       "position": [
-        450,
-        -180
-      ]
+        -360,
+        -360
+      ],
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "ir_history_search",
+        "toolDescription": "Semantic search over prior IR correspondence and how it was routed/answered.",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "investor-relations",
+          "mode": "list"
+        },
+        "topK": "={{ $('Workflow_Config').item.json.top_k }}",
+        "options": {
+          "pineconeNamespace": "stakeholder-comms"
+        }
+      },
+      "credentials": {
+        "pineconeApi": {
+          "id": "REPLACE_PINECONE_CRED",
+          "name": "Pinecone account"
+        }
+      },
+      "notes": "PRD 3.2 fix: orphaned vector store now reachable from the agent as a tool."
     },
     {
+      "id": "n-mem",
       "name": "Context_Memory_Buffer",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
       "position": [
-        450,
-        -40
-      ]
+        -180,
+        -120
+      ],
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Bridge_Agent_Input').item.json.sessionId }}",
+        "contextWindowLength": 10
+      },
+      "notes": "PRD 3.4 fix: attaches via ai_memory, not the webhook main path."
     },
     {
+      "id": "n-llm",
       "name": "LLM_Inference_Engine",
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
       "position": [
-        450,
-        -340
-      ]
+        -180,
+        -360
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Workflow_Config').item.json.model }}",
+          "mode": "id"
+        },
+        "options": {
+          "maxTokensToSample": "={{ $('Workflow_Config').item.json.max_tokens }}",
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_ANTHROPIC_CRED",
+          "name": "Anthropic account"
+        }
+      },
+      "notes": "PRD 3.2 fix: wired to the agent + retrieval tool via ai_languageModel."
     },
     {
+      "id": "n-parser",
+      "name": "Schema_Validation_Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        40,
+        -120
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"summary\",\n    \"key_asks\",\n    \"sentiment\",\n    \"urgency\",\n    \"suggested_owner\"\n  ],\n  \"properties\": {\n    \"summary\": {\n      \"type\": \"string\"\n    },\n    \"key_asks\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"sentiment\": {\n      \"enum\": [\n        \"positive\",\n        \"neutral\",\n        \"concerned\",\n        \"negative\"\n      ]\n    },\n    \"urgency\": {\n      \"enum\": [\n        \"low\",\n        \"medium\",\n        \"high\"\n      ]\n    },\n    \"suggested_owner\": {\n      \"enum\": [\n        \"IR\",\n        \"CFO\",\n        \"CEO\",\n        \"Legal\",\n        \"Comms\",\n        \"Unassigned\"\n      ]\n    },\n    \"stakeholder\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ]\n    }\n  }\n}"
+      }
+    },
+    {
+      "id": "n-agent",
       "name": "NLP_Financial_Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
       "position": [
-        720,
-        -40
-      ]
+        280,
+        -120
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "You distill investor-relations and stakeholder communications into a structured executive summary. Use the ir_history_search tool to check how similar past asks were handled and who owned them.\n- summary: <= 800 chars, factual, no spin.\n- key_asks: explicit requests only.\n- sentiment: positive|neutral|concerned|negative.\n- urgency: low|medium|high.\n- suggested_owner: IR|CFO|CEO|Legal|Comms|Unassigned.\nReturn only JSON matching the schema."
+        }
+      }
     },
     {
+      "id": "n-flat",
+      "name": "Flatten_Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        -120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "source_ref",
+              "value": "={{ $('Bridge_Agent_Input').item.json.source_ref }}",
+              "type": "string"
+            },
+            {
+              "id": "f2",
+              "name": "summary",
+              "value": "={{ ($json.output ?? $json).summary }}",
+              "type": "string"
+            },
+            {
+              "id": "f3",
+              "name": "key_asks",
+              "value": "={{ (($json.output ?? $json).key_asks || []).join(' | ') }}",
+              "type": "string"
+            },
+            {
+              "id": "f4",
+              "name": "sentiment",
+              "value": "={{ ($json.output ?? $json).sentiment }}",
+              "type": "string"
+            },
+            {
+              "id": "f5",
+              "name": "urgency",
+              "value": "={{ ($json.output ?? $json).urgency }}",
+              "type": "string"
+            },
+            {
+              "id": "f6",
+              "name": "suggested_owner",
+              "value": "={{ ($json.output ?? $json).suggested_owner }}",
+              "type": "string"
+            },
+            {
+              "id": "f7",
+              "name": "stakeholder",
+              "value": "={{ ($json.output ?? $json).stakeholder || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-ledger",
       "name": "Master_Ledger_Update",
       "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
-        930,
-        -40
-      ]
+        720,
+        -120
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ir_summaries",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "source_ref"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     },
     {
+      "id": "n-audit",
+      "name": "Audit_Log_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        940,
+        -120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "investor-relations-nlp",
+            "run_id": "={{ $execution.id }}",
+            "action": "ledger_update",
+            "target": "={{ $json.source_ref }}",
+            "reason": "={{ 'sentiment=' + $json.sentiment + ' urgency=' + $json.urgency }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "success",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-respond",
+      "name": "Respond_To_Caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1180,
+        -120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "n-errctx",
+      "name": "Error_Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        280,
+        140
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "workflow",
+              "value": "investor-relations-nlp",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "run_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e4",
+              "name": "action",
+              "value": "agent_failure",
+              "type": "string"
+            },
+            {
+              "id": "e5",
+              "name": "target",
+              "value": "={{ $('Bridge_Agent_Input').item.json.source_ref }}",
+              "type": "string"
+            },
+            {
+              "id": "e6",
+              "name": "reason",
+              "value": "={{ $json.error && $json.error.message ? $json.error.message : 'agent/parser error' }}",
+              "type": "string"
+            },
+            {
+              "id": "e7",
+              "name": "actor",
+              "value": "system",
+              "type": "string"
+            },
+            {
+              "id": "e8",
+              "name": "approved_by",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e9",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "e10",
+              "name": "detail",
+              "value": "={{ $json.error && $json.error.stack ? $json.error.stack : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-erraudit",
+      "name": "Error_Audit_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        140
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "run_id": "={{ $json.run_id }}",
+            "action": "={{ $json.action }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "failed",
+            "detail": "={{ $json.detail }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-erralert",
       "name": "Trigger_Executive_Alert",
       "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
       "position": [
-        930,
-        120
-      ]
+        720,
+        140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "REPLACE_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=investor-relations-nlp run {{ $json.run_id }} failed: {{ $json.reason }}",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_SLACK_CRED",
+          "name": "Slack account"
+        }
+      }
     }
   ],
   "connections": {
@@ -99,12 +648,46 @@
       "main": [
         [
           {
-            "node": "Text_Chunking_Engine",
+            "node": "Workflow_Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow_Config": {
+      "main": [
+        [
+          {
+            "node": "Enabled_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enabled_Gate": {
+      "main": [
+        [
+          {
+            "node": "Bridge_Agent_Input",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Context_Memory_Buffer",
+            "node": "Vector_DB_Insert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Bridge_Agent_Input": {
+      "main": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
             "type": "main",
             "index": 0
           }
@@ -112,11 +695,87 @@
       ]
     },
     "Text_Chunking_Engine": {
-      "main": [
+      "ai_textSplitter": [
         [
           {
-            "node": "Cohere_Vector_Embeddings",
-            "type": "main",
+            "node": "Document_Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document_Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Vector_DB_Insert",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cohere_Vector_Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Vector_DB_Insert",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Vector_Retrieval_Tool",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM_Inference_Engine": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Vector_Retrieval_Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context_Memory_Buffer": {
+      "ai_memory": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector_Retrieval_Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schema_Validation_Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "ai_outputParser",
             "index": 0
           }
         ]
@@ -126,13 +785,68 @@
       "main": [
         [
           {
-            "node": "Master_Ledger_Update",
+            "node": "Flatten_Summary",
             "type": "main",
             "index": 0
           }
         ]
       ],
       "onError": [
+        [
+          {
+            "node": "Error_Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten_Summary": {
+      "main": [
+        [
+          {
+            "node": "Master_Ledger_Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Master_Ledger_Update": {
+      "main": [
+        [
+          {
+            "node": "Audit_Log_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit_Log_Write": {
+      "main": [
+        [
+          {
+            "node": "Respond_To_Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Context": {
+      "main": [
+        [
+          {
+            "node": "Error_Audit_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Audit_Write": {
+      "main": [
         [
           {
             "node": "Trigger_Executive_Alert",
@@ -144,6 +858,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
 }

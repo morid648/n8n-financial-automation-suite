@@ -38,21 +38,20 @@ Kill switch: `Config.enabled = false` halts the workflow.
 
 ## Node reference
 
-_TBD — populate from `Data_Sanitization_Cron.json`._
-
-Target path:
+Implemented in `Data_Sanitization_Cron.json`:
 ```
-Schedule → Config(Set) → Gmail_Fetch_Candidates → Scam_Classifier ─(err)→ Error_Branch
-                                                          │
-                                    Filter(verdict∈{scam,junk} && conf≥0.9)
-                                                          │
-                              ┌───────────── dry_run? ─────────────┐
-                            true                                 false
-                              │                                     │
-                     Audit_Log(dry_run_candidate)        Telegram_Approval_Gate
-                                                                    │ approved ids
-                                                            Gmail_Delete_Op → Audit_Log(email_delete)
+Chron_Scheduler → Workflow_Config → Enabled_Gate → Gmail_Fetch_Candidates (READ-ONLY cred)
+   → Scam_Classifier (informationExtractor, Gemini via ai_languageModel) ──onError──► Error_Context → Error_Audit_Write
+   → Attach_Message_Id → Deletion_Candidate_Filter (verdict≠legit AND confidence ≥ min_confidence)
+   → Dry_Run_Gate (IF Workflow_Config.dry_run)
+        ├─ true  → Audit_DryRun_Candidate            (nothing deleted)
+        └─ false → Aggregate_Candidates → Format_Approval_Message
+                   → Telegram_Approval_Gate (sendAndWait, Approve/Deny, timeout→deny)
+                   → Was_Approved (IF)
+                        ├─ approved → Split_Approved → Gmail_Delete_Op (DELETE cred) → Audit_Delete → Telegram_Run_Summary
+                        └─ denied   → Audit_Denied
 ```
+`Scam_Model` (Gemini) → `ai_languageModel` → `Scam_Classifier`. Two separate Gmail credentials: read-only on the fetch, delete-scope only on `Gmail_Delete_Op`.
 
 ## Required credentials
 
@@ -64,16 +63,15 @@ Schedule → Config(Set) → Gmail_Fetch_Candidates → Scam_Classifier ─(err)
 
 ## Known gaps
 
-- All of the above is the **target** design — the exported JSON still has `Gmail_Fetch_Flagged → Gmail_Delete_Op → Telegram_Executive_Alert` (delete first). Rewiring is Phase 2 (T2.1–T2.10) and needs the skeleton JSON.
+- Rewire done in the JSON: delete is now downstream of both a dry-run gate and a human approval gate; fetch and delete use separate credentials.
+- `DRY_RUN_UNTIL` is **informational** — n8n has no built-in run counter, so `dry_run` is a manual boolean the operator flips to `false` after reviewing that many runs of logged candidates.
+- `Was_Approved` reads `$json.data.approved` from the Telegram `sendAndWait` response — confirm the exact field name against your n8n version on import.
+- Not yet run end-to-end (Phase 2 tests T2.8/T2.9).
 
 ## Setup steps
 
 1. Import `Data_Sanitization_Cron.json`.
-2. Add the two separately-scoped Gmail credentials + Gemini + Telegram + audit sink.
-3. Add the `Config` Set node (`enabled`, `dry_run`, `DRY_RUN_UNTIL`, `min_confidence`, `APPROVAL_TIMEOUT`).
-4. Rewire to the target path above; delete the direct fetch→delete edge.
-5. Add `Scam_Classifier` with structured output + "Continue on Fail" + error branch.
-6. Implement the Telegram approve/deny gate and the dry-run branch.
-7. Add audit-log writes on every path (candidate, delete, deny, skip, fail).
-8. Run in dry-run against 5–10 sample emails incl. a deliberate false positive; confirm nothing is deleted and the log is correct.
-9. Switch `dry_run = false`; test the approval path; confirm Deny prevents deletion.
+2. Create **two** Gmail credentials: `Gmail (sanitization READ-ONLY)` with `gmail.readonly` only, and `Gmail (sanitization DELETE)` with `https://mail.google.com/`. Assign them to `Gmail_Fetch_Candidates` and `Gmail_Delete_Op` respectively.
+3. Replace the Gemini cred, Telegram bot cred + `REPLACE_TELEGRAM_CHAT_ID`, `REPLACE_SHEET_ID`.
+4. Leave `Workflow_Config.dry_run = true`. Run against 5–10 sample emails incl. a deliberate false positive; confirm **nothing is deleted** and `audit_log` shows `dry_run_candidate` rows.
+5. After reviewing classifier precision, set `dry_run = false`. Test the approval path: confirm **Deny** and **timeout** both prevent deletion.

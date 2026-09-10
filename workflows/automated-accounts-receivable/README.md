@@ -17,7 +17,12 @@ Gmail-triggered workflow. Parses inbound invoice emails, extracts structured inv
 
 ## Node reference
 
-_TBD — populate from `Automated_Accounts_Receivable.json`._
+`Ingest_Inbox_Stream (gmailTrigger) → Workflow_Config → Enabled_Gate → Quantitative_Data_Parser → Pre_Ledger_Validation → Valid_Invoice (IF)`:
+- **valid** → `Generate_PDF_Record → Gmail_Operations → Master_Ledger_Update → Audit_Log_Write`
+- **invalid** → `Flag_Needs_Review (Gmail label AR/needs-review) → Audit_Log_Skip`
+- parser `onError` → `Error_Context → Error_Audit_Write`
+
+`Gemini_Inference_Engine` is wired to `Quantitative_Data_Parser` via `ai_languageModel` (**PRD 3.8 fix**). `Pre_Ledger_Validation` enforces the T1.6 rules (amount present/positive/≤cap, ISO currency in allowlist, parseable due date, confidence ≥ 0.7). `Gmail_Operations` = ack reply (T1.7).
 
 ## Required credentials
 
@@ -28,16 +33,14 @@ _TBD — populate from `Automated_Accounts_Receivable.json`._
 
 ## Known gaps
 
-- `Gemini_Inference_Engine` has zero connections — not wired to `Quantitative_Data_Parser` (PRD 3.8).
-- Extraction schema (invoice number, vendor, amount, due date, currency) not defined.
-- No validation step before `Master_Ledger_Update`.
-- `Gmail_Operations` purpose undocumented (acknowledge? forward to AP?).
-- No audit-log row per ledger write (PRD Section 4).
+- PRD 3.8 **fixed**; T1.6 validation + T1.7 `Gmail_Operations` + audit rows all in the current JSON.
+- `Generate_PDF_Record` uses a generic `apiTemplateIo` param shape — set the real template ID on import.
+- The `AR/needs-review` Gmail label ID (`Label_AR_needs_review`) is a placeholder; replace with the real label ID.
+- Not yet run end-to-end (Phase 6).
 
 ## Setup steps
 
 1. Import `Automated_Accounts_Receivable.json`.
-2. Add all credentials above (no inline keys).
-3. Wire `Gemini_Inference_Engine` via `ai_languageModel` per the checklist.
-4. Add the T1.6 extraction schema + validation node + audit-log write.
-5. Test against 5–10 sample invoice emails, including one with a missing amount.
+2. Replace `REPLACE_*` credential IDs (two Gmail creds: `Gmail (AR read)` read-only, `Gmail (AR send/label)` for reply+label), `REPLACE_SHEET_ID`, the APITemplate template ID, and the needs-review label ID.
+3. Create ledger tabs `accounts_receivable` + `audit_log`.
+4. Test against 5–10 sample invoice emails **including one with a missing amount** — confirm it routes to needs-review, not the ledger.

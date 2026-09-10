@@ -1,53 +1,528 @@
 {
   "name": "Automated_Accounts_Receivable",
+  "meta": {
+    "description": "Parses invoice emails with Gemini, validates before the ledger, generates a PDF record, acknowledges the sender, updates the AR ledger. Corrected per PRD 3.8 + 5.3."
+  },
   "nodes": [
     {
+      "id": "n-trigger",
       "name": "Ingest_Inbox_Stream",
       "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
       "position": [
-        -240,
+        -1180,
         -20
-      ]
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "q": "subject:(invoice OR statement) has:attachment newer_than:30d"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_READ_CRED",
+          "name": "Gmail (AR read)"
+        }
+      }
     },
     {
-      "name": "Quantitative_Data_Parser",
-      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "id": "n-config",
+      "name": "Workflow_Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
-        -20,
+        -980,
         -20
-      ]
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "enabled",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c2",
+              "name": "model",
+              "value": "gemini-2.0-flash",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "min_extraction_confidence",
+              "value": 0.7,
+              "type": "number"
+            },
+            {
+              "id": "c4",
+              "name": "amount_sanity_cap",
+              "value": 10000000,
+              "type": "number"
+            },
+            {
+              "id": "c5",
+              "name": "currency_allowlist",
+              "value": "USD,EUR,GBP,INR,SGD",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
+      "id": "n-gate",
+      "name": "Enabled_Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -780,
+        -20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-gemini",
       "name": "Gemini_Inference_Engine",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
       "position": [
-        180,
+        -560,
         200
-      ]
+      ],
+      "parameters": {
+        "modelName": "={{ $('Workflow_Config').item.json.model }}",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_GEMINI_CRED",
+          "name": "Google Gemini account"
+        }
+      },
+      "notes": "PRD 3.8 fix: wired to Quantitative_Data_Parser via ai_languageModel."
     },
     {
+      "id": "n-parser",
+      "name": "Quantitative_Data_Parser",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        -20
+      ],
+      "parameters": {
+        "text": "={{ $json.text || $json.snippet || $json.textPlain || $json.textHtml }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"invoice_number\",\n    \"vendor\",\n    \"amount\",\n    \"currency\",\n    \"due_date\"\n  ],\n  \"properties\": {\n    \"invoice_number\": {\n      \"type\": \"string\"\n    },\n    \"vendor\": {\n      \"type\": \"string\"\n    },\n    \"amount\": {\n      \"type\": \"number\"\n    },\n    \"currency\": {\n      \"type\": \"string\"\n    },\n    \"invoice_date\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ]\n    },\n    \"due_date\": {\n      \"type\": \"string\"\n    },\n    \"po_number\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ]\n    },\n    \"extraction_confidence\": {\n      \"type\": \"number\"\n    }\n  }\n}",
+        "options": {
+          "systemPromptTemplate": "Extract invoice fields exactly as written. amount is a number with no currency symbol or thousands separators. currency is a 3-letter ISO code. Dates are ISO-8601 (YYYY-MM-DD). extraction_confidence is your 0..1 confidence that every required field is correct. Do not guess a missing amount or due date."
+        }
+      }
+    },
+    {
+      "id": "n-validate",
+      "name": "Pre_Ledger_Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        -20
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const d = $json.output ?? $json;\nconst cfg = $('Workflow_Config').item.json;\nconst allow = String(cfg.currency_allowlist).split(',').map(s=>s.trim());\nconst errors = [];\nif (!d.invoice_number) errors.push('missing invoice_number');\nif (typeof d.amount !== 'number' || !(d.amount > 0)) errors.push('amount missing or not positive');\nif (d.amount > cfg.amount_sanity_cap) errors.push('amount exceeds sanity cap');\nif (!allow.includes(d.currency)) errors.push('currency not in allowlist');\nconst due = Date.parse(d.due_date);\nif (Number.isNaN(due)) errors.push('due_date unparseable');\nif (!d.vendor) errors.push('missing vendor');\nif ((d.extraction_confidence ?? 0) < cfg.min_extraction_confidence) errors.push('low extraction confidence');\nreturn { ...d, source_email_id: $('Ingest_Inbox_Stream').item.json.id, valid: errors.length === 0, validation_errors: errors.join('; ') };"
+      }
+    },
+    {
+      "id": "n-if",
+      "name": "Valid_Invoice",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -120,
+        -20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "v1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-pdf",
       "name": "Generate_PDF_Record",
       "type": "n8n-nodes-base.apiTemplateIo",
+      "typeVersion": 1,
       "position": [
-        340,
-        -20
-      ]
+        120,
+        -120
+      ],
+      "parameters": {
+        "resource": "pdf",
+        "jsonData": "={{ JSON.stringify($json) }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "apiTemplateIoApi": {
+          "id": "REPLACE_APITEMPLATE_CRED",
+          "name": "APITemplate.io account"
+        }
+      }
     },
     {
+      "id": "n-gmailops",
       "name": "Gmail_Operations",
       "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
-        560,
-        -20
-      ]
+        340,
+        -120
+      ],
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Ingest_Inbox_Stream').item.json.id }}",
+        "message": "Thank you — your invoice {{ $json.invoice_number }} has been received and recorded. This is an automated acknowledgement from Accounts Receivable.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_SEND_CRED",
+          "name": "Gmail (AR send/label)"
+        }
+      },
+      "notes": "T1.7: sends a plain-text acknowledgement + applies label AR/processed (add a Gmail 'addLabels' step after this if the label op is preferred separately)."
     },
     {
+      "id": "n-ledger",
       "name": "Master_Ledger_Update",
       "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        -120
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "accounts_receivable",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "invoice_number"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-audit-ok",
+      "name": "Audit_Log_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
         780,
-        -20
-      ]
+        -120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "automated-accounts-receivable",
+            "run_id": "={{ $execution.id }}",
+            "action": "ledger_update",
+            "target": "={{ $json.invoice_number }}",
+            "reason": "={{ 'amount=' + $json.amount + ' ' + $json.currency }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "success",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-needs-review",
+      "name": "Flag_Needs_Review",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        120,
+        120
+      ],
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Ingest_Inbox_Stream').item.json.id }}",
+        "labelIds": [
+          "Label_AR_needs_review"
+        ]
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_SEND_CRED",
+          "name": "Gmail (AR send/label)"
+        }
+      }
+    },
+    {
+      "id": "n-audit-skip",
+      "name": "Audit_Log_Skip",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        340,
+        120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "automated-accounts-receivable",
+            "run_id": "={{ $execution.id }}",
+            "action": "ledger_update",
+            "target": "={{ $json.invoice_number || $json.source_email_id }}",
+            "reason": "={{ 'validation failed: ' + $json.validation_errors }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "skipped",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-errctx",
+      "name": "Error_Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -340,
+        220
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "workflow",
+              "value": "automated-accounts-receivable",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "run_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e4",
+              "name": "action",
+              "value": "extractor_failure",
+              "type": "string"
+            },
+            {
+              "id": "e5",
+              "name": "target",
+              "value": "={{ $('Ingest_Inbox_Stream').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e6",
+              "name": "reason",
+              "value": "={{ $json.error && $json.error.message ? $json.error.message : 'extractor error' }}",
+              "type": "string"
+            },
+            {
+              "id": "e7",
+              "name": "actor",
+              "value": "system",
+              "type": "string"
+            },
+            {
+              "id": "e8",
+              "name": "approved_by",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e9",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "e10",
+              "name": "detail",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-erraudit",
+      "name": "Error_Audit_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -120,
+        220
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "run_id": "={{ $json.run_id }}",
+            "action": "={{ $json.action }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "failed",
+            "detail": "={{ $json.detail }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     }
   ],
   "connections": {
@@ -55,8 +530,42 @@
       "main": [
         [
           {
+            "node": "Workflow_Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow_Config": {
+      "main": [
+        [
+          {
+            "node": "Enabled_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enabled_Gate": {
+      "main": [
+        [
+          {
             "node": "Quantitative_Data_Parser",
             "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Gemini_Inference_Engine": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Quantitative_Data_Parser",
+            "type": "ai_languageModel",
             "index": 0
           }
         ]
@@ -66,7 +575,45 @@
       "main": [
         [
           {
+            "node": "Pre_Ledger_Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Error_Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre_Ledger_Validation": {
+      "main": [
+        [
+          {
+            "node": "Valid_Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid_Invoice": {
+      "main": [
+        [
+          {
             "node": "Generate_PDF_Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag_Needs_Review",
             "type": "main",
             "index": 0
           }
@@ -94,9 +641,45 @@
           }
         ]
       ]
+    },
+    "Master_Ledger_Update": {
+      "main": [
+        [
+          {
+            "node": "Audit_Log_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag_Needs_Review": {
+      "main": [
+        [
+          {
+            "node": "Audit_Log_Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Context": {
+      "main": [
+        [
+          {
+            "node": "Error_Audit_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
 }

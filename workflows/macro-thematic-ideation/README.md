@@ -17,7 +17,9 @@ Webhook-triggered RAG workflow. Retrieves over macro/sector data to support rese
 
 ## Node reference
 
-_TBD — populate from `Macro_Thematic_Ideation.json`._ One of four workflows sharing an identical skeleton (PRD 3.1).
+Corrected RAG shape with **Supabase** vector nodes (`vectorStoreSupabase`, `match_documents` RPC) in place of Pinecone: agent → `Flatten_Idea → Master_Ledger_Update (macro_ideas) → Audit_Log_Write → Respond_To_Caller`, ingest branch to `Vector_DB_Insert`, `onError` branch to Slack.
+
+Sub-connections wired: `LLM_Inference_Engine` (Anthropic, `claude-sonnet-5`) `ai_languageModel`; `Context_Memory_Buffer` `ai_memory`; `Vector_Retrieval_Tool` (`macro_corpus_search`, Supabase) `ai_tool`; `Schema_Validation_Parser` `ai_outputParser` (T1.10 schema, every `supporting_point` must carry a `source_ref`); `Cohere_Vector_Embeddings` `ai_embedding`.
 
 ## Vector store decision (resolved 2026-09-11)
 
@@ -35,11 +37,9 @@ _TBD — populate from `Macro_Thematic_Ideation.json`._ One of four workflows sh
 
 ## Known gaps
 
-- Vector store mismatch **resolved** (Supabase) — JSON nodes still need swapping from Pinecone.
-- Shares a byte-for-byte identical skeleton with 3 other workflows — no macro-specific logic yet (PRD 3.1).
-- LangChain sub-connections missing (PRD 3.2).
-- `NLP_Financial_Agent` has no incoming main connection — needs a bridge node (PRD 3.3).
-- `Context_Memory_Buffer` wired on the main path instead of `ai_memory` (PRD 3.4).
+- PRD 3.1/3.2/3.3/3.4/3.5 **fixed** — JSON now uses `vectorStoreSupabase`, macro-specific prompt, all sub-connections.
+- Not yet run end-to-end (Phase 6). Credential IDs are `REPLACE_*` placeholders.
+- Supabase table `macro_documents` (vector column + ANN index) and the `match_documents` RPC must be provisioned before first run.
 
 ## Setup steps
 

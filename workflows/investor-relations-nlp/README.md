@@ -16,7 +16,9 @@ Webhook-triggered RAG workflow. Distills stakeholder communications into a struc
 
 ## Node reference
 
-_TBD — populate from `Investor_Relations_NLP.json`._ One of four workflows sharing an identical skeleton (PRD 3.1).
+Same corrected RAG shape as the reference workflow ([`../analyst-screening-pipeline/`](../analyst-screening-pipeline/)): `Ingest_API_Payload → Workflow_Config → Enabled_Gate → Bridge_Agent_Input → NLP_Financial_Agent → Flatten_Summary → Master_Ledger_Update → Audit_Log_Write → Respond_To_Caller`, with an ingest branch to `Vector_DB_Insert` and `onError → Error_Context → Error_Audit_Write → Trigger_Executive_Alert`.
+
+Sub-connections wired: `LLM_Inference_Engine` (Anthropic, `claude-sonnet-5`) `ai_languageModel`; `Context_Memory_Buffer` `ai_memory`; `Vector_Retrieval_Tool` (`ir_history_search`) `ai_tool`; `Schema_Validation_Parser` `ai_outputParser` (T1.9 summary schema); `Cohere_Vector_Embeddings` `ai_embedding`.
 
 ## Required credentials
 
@@ -26,16 +28,13 @@ _TBD — populate from `Investor_Relations_NLP.json`._ One of four workflows sha
 
 ## Known gaps
 
-- Shares a byte-for-byte identical skeleton with 3 other workflows — no IR-specific logic yet (PRD 3.1).
-- LangChain sub-connections missing (PRD 3.2).
-- `NLP_Financial_Agent` has no incoming main connection — needs a bridge node (PRD 3.3).
-- `Context_Memory_Buffer` wired on the main path instead of `ai_memory` (PRD 3.4).
-- "Structured executive summary" output schema not defined.
+- PRD 3.1/3.2/3.3/3.4 **fixed** in the current JSON.
+- Not yet run end-to-end (Phase 6). Credential IDs are `REPLACE_*` placeholders.
+- Pinecone index `investor-relations` (namespace `stakeholder-comms`) must exist before first run.
 
 ## Setup steps
 
 1. Import `Investor_Relations_NLP.json`.
-2. Add all credentials above.
-3. Apply the fixes in [`../../docs/LANGCHAIN_WIRING_CHECKLIST.md`](../../docs/LANGCHAIN_WIRING_CHECKLIST.md).
-4. Layer in the distillation prompt + T1.9 summary schema.
-5. Test against 5–10 sample stakeholder messages before going live.
+2. Replace every `REPLACE_*` placeholder with real credentials / IDs in n8n.
+3. Create the Pinecone index and ledger tabs `ir_summaries` + `audit_log`.
+4. Test against 5–10 sample stakeholder messages; confirm the summary schema validates and the audit row is written.

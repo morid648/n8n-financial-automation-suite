@@ -1,45 +1,395 @@
 {
   "name": "Corporate_Comms_Triage",
+  "meta": {
+    "description": "Classifies inbound mail into a closed taxonomy and alerts only on critical categories (billing). Corrected per PRD 3.6 + 3.8."
+  },
   "nodes": [
     {
+      "id": "n-trigger",
       "name": "Ingest_Inbox_Stream",
       "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
       "position": [
-        -608,
-        256
-      ]
+        -1180,
+        160
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_READ_CRED",
+          "name": "Gmail (comms read)"
+        }
+      }
     },
     {
-      "name": "NLP_Text_Classifier",
-      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "id": "n-config",
+      "name": "Workflow_Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
-        -416,
-        192
-      ]
+        -980,
+        160
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "enabled",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c2",
+              "name": "model",
+              "value": "gemini-2.0-flash",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "critical_categories",
+              "value": "billing",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
+      "id": "n-gate",
+      "name": "Enabled_Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -780,
+        160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "typeValidation": "strict",
+            "caseSensitive": true
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-gemini",
       "name": "Gemini_Inference_Engine",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
       "position": [
-        -416,
-        496
-      ]
+        -560,
+        420
+      ],
+      "parameters": {
+        "modelName": "={{ $('Workflow_Config').item.json.model }}",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_GEMINI_CRED",
+          "name": "Google Gemini account"
+        }
+      },
+      "notes": "PRD 3.8 fix: wired to BOTH NLP_Text_Classifier and LLM_Execution_Chain via ai_languageModel."
     },
     {
+      "id": "n-classifier",
+      "name": "NLP_Text_Classifier",
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        160
+      ],
+      "parameters": {
+        "inputText": "={{ $json.subject }}\n\n{{ $json.snippet || $json.textPlain }}",
+        "categories": {
+          "categories": [
+            {
+              "category": "billing",
+              "description": "Invoices, payment failures, dunning notices, billing disputes, anything with a monetary amount owed or due."
+            },
+            {
+              "category": "project_update",
+              "description": "Status updates, meeting notes, deliverable notifications from known projects or colleagues."
+            },
+            {
+              "category": "spam",
+              "description": "Cold outreach, promotions, newsletters, phishing, anything unsolicited."
+            },
+            {
+              "category": "other",
+              "description": "Legitimate mail that is none of the above."
+            }
+          ]
+        },
+        "options": {
+          "multiClass": false,
+          "fallback": false
+        }
+      },
+      "notes": "Closed taxonomy (T1.8): billing, project_update, spam, other. One output per category."
+    },
+    {
+      "id": "n-chain",
       "name": "LLM_Execution_Chain",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
       "position": [
-        480,
-        144
-      ]
+        40,
+        40
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a 2-line executive alert for this BILLING email. Line 1: what is owed / what failed and the amount. Line 2: the sender and any deadline.\n\nSubject: {{ $json.subject }}\nBody: {{ $json.snippet || $json.textPlain }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You produce terse, factual finance alerts. No greetings, no filler."
+            }
+          ]
+        }
+      }
     },
     {
+      "id": "n-alert",
       "name": "Telegram_Executive_Alert",
       "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
-        800,
-        144
-      ]
+        280,
+        40
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "REPLACE_TELEGRAM_CHAT_ID",
+        "text": "=🚨 Billing alert\n{{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "id": "n-sink",
+      "name": "NonCritical_Log_Sink",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        40,
+        300
+      ],
+      "parameters": {},
+      "notes": "project_update / spam / other terminate here (PRD 3.6 — only critical categories alert)."
+    },
+    {
+      "id": "n-audit",
+      "name": "Classification_Audit",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "workflow": "corporate-comms-triage",
+            "run_id": "={{ $execution.id }}",
+            "action": "classified",
+            "target": "={{ $('Ingest_Inbox_Stream').item.json.id }}",
+            "reason": "={{ $json.category || 'non-critical' }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "success",
+            "detail": ""
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
+    },
+    {
+      "id": "n-errctx",
+      "name": "Error_Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -560,
+        640
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "workflow",
+              "value": "corporate-comms-triage",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "run_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e4",
+              "name": "action",
+              "value": "classifier_failure",
+              "type": "string"
+            },
+            {
+              "id": "e5",
+              "name": "target",
+              "value": "={{ $('Ingest_Inbox_Stream').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e6",
+              "name": "reason",
+              "value": "={{ $json.error && $json.error.message ? $json.error.message : 'classifier/chain error' }}",
+              "type": "string"
+            },
+            {
+              "id": "e7",
+              "name": "actor",
+              "value": "system",
+              "type": "string"
+            },
+            {
+              "id": "e8",
+              "name": "approved_by",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e9",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "e10",
+              "name": "detail",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-erraudit",
+      "name": "Error_Audit_Write",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -340,
+        640
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_log",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "run_id": "={{ $json.run_id }}",
+            "action": "={{ $json.action }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "actor": "system",
+            "approved_by": "",
+            "outcome": "failed",
+            "detail": "={{ $json.detail }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_SHEETS_CRED",
+          "name": "Google Sheets (ledger)"
+        }
+      }
     }
   ],
   "connections": {
@@ -47,8 +397,47 @@
       "main": [
         [
           {
+            "node": "Workflow_Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow_Config": {
+      "main": [
+        [
+          {
+            "node": "Enabled_Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enabled_Gate": {
+      "main": [
+        [
+          {
             "node": "NLP_Text_Classifier",
             "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Gemini_Inference_Engine": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "NLP_Text_Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "LLM_Execution_Chain",
+            "type": "ai_languageModel",
             "index": 0
           }
         ]
@@ -59,6 +448,36 @@
         [
           {
             "node": "LLM_Execution_Chain",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NonCritical_Log_Sink",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NonCritical_Log_Sink",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NonCritical_Log_Sink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Error_Context",
             "type": "main",
             "index": 0
           }
@@ -74,10 +493,55 @@
             "index": 0
           }
         ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Error_Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram_Executive_Alert": {
+      "main": [
+        [
+          {
+            "node": "Classification_Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NonCritical_Log_Sink": {
+      "main": [
+        [
+          {
+            "node": "Classification_Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Context": {
+      "main": [
+        [
+          {
+            "node": "Error_Audit_Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {}
 }
