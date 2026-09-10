@@ -13,27 +13,29 @@ Webhook-triggered RAG workflow. Retrieves over macro/sector data to support rese
 - n8n
 - Anthropic Claude (agent language model)
 - Cohere embeddings
-- Vector store: **Supabase vs Pinecone — UNDECIDED (PRD 3.5)**
+- Vector store: **Supabase** (pgvector) — decided, see below
 
 ## Node reference
 
 _TBD — populate from `Macro_Thematic_Ideation.json`._ One of four workflows sharing an identical skeleton (PRD 3.1).
 
-## Vector store decision (blocking)
+## Vector store decision (resolved 2026-09-11)
 
-The README prose says Supabase; the JSON uses `vectorStorePinecone`. This must be resolved before build work — it determines the vector node type, credential, and query syntax.
+**Decision:** Supabase (`vectorStoreSupabase`, pgvector).
 
-**Decision:** _pending_ · **Rationale:** _pending_
+**Rationale:** Keeps the README prose authoritative; consolidates macro/sector data alongside other Postgres-resident data; pgvector avoids a separate managed-index bill for a low-frequency research workflow. The other three RAG workflows stay on Pinecone.
+
+**Build impact:** replace `vectorStorePinecone` nodes with `vectorStoreSupabase`; create a Supabase table with a `vector` column + an `ivfflat`/`hnsw` index + a `match_documents` RPC; swap the query node to call that RPC.
 
 ## Required credentials
 
 - Anthropic API key
 - Cohere API key
-- Supabase connection **or** Pinecone API key + index (per decision above)
+- Supabase — project URL + service role key (or a scoped key with `select`/`insert` on the vector table + `execute` on the match RPC)
 
 ## Known gaps
 
-- Vector store mismatch unresolved (PRD 3.5).
+- Vector store mismatch **resolved** (Supabase) — JSON nodes still need swapping from Pinecone.
 - Shares a byte-for-byte identical skeleton with 3 other workflows — no macro-specific logic yet (PRD 3.1).
 - LangChain sub-connections missing (PRD 3.2).
 - `NLP_Financial_Agent` has no incoming main connection — needs a bridge node (PRD 3.3).
@@ -41,9 +43,9 @@ The README prose says Supabase; the JSON uses `vectorStorePinecone`. This must b
 
 ## Setup steps
 
-1. Resolve the vector store decision above.
-2. Import `Macro_Thematic_Ideation.json`; swap vector nodes if the decision is Supabase.
+1. Provision Supabase: table with a `vector` column, ANN index, and a `match_documents` RPC.
+2. Import `Macro_Thematic_Ideation.json`; replace `vectorStorePinecone` nodes with `vectorStoreSupabase`.
 3. Add all credentials above.
 4. Apply the fixes in [`../../docs/LANGCHAIN_WIRING_CHECKLIST.md`](../../docs/LANGCHAIN_WIRING_CHECKLIST.md).
-5. Layer in the ideation prompt + T1.10 schema.
+5. Layer in the ideation prompt + T1.10 schema (see [`../../docs/SCHEMAS.md`](../../docs/SCHEMAS.md)).
 6. Test against 5–10 sample research queries before going live.

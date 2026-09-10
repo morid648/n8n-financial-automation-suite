@@ -4,6 +4,27 @@ Structured-output contracts for every AI node in the suite (tasks T1.4–T1.12).
 
 ---
 
+## T1.2 — Data Sanitization Cron: scam classifier schema
+
+`Scam_Classifier` (Gemini) output, one per fetched email. Closed `verdict` set — no free text.
+
+```json
+{
+  "type": "object",
+  "required": ["verdict", "confidence", "reason"],
+  "properties": {
+    "verdict":    { "enum": ["scam", "junk", "legit"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason":     { "type": "string", "maxLength": 200 },
+    "message_id": { "type": "string" }
+  }
+}
+```
+
+Deletion candidate = `verdict ∈ {scam, junk}` AND `confidence >= min_confidence` (Config node, default 0.9). See [`../workflows/data-sanitization-cron/README.md`](../workflows/data-sanitization-cron/README.md) for the safeguard flow (T1.3: dry-run **then** Telegram approve/deny).
+
+---
+
 ## T1.4 — SQL Data Governance Agent: verdict schema
 
 One object per check executed in the batch.
@@ -175,11 +196,13 @@ Low confidence (`< 0.6`) on a non-critical category is still treated as non-crit
 
 ## T1.10 — Macro Thematic Ideation: retrieval contract + output schema
 
-**Depends on T1.1 (Supabase vs Pinecone).** Retrieval query contract:
+Vector store = **Supabase / pgvector** (T1.1, decided 2026-09-11). Retrieval calls a `match_documents` RPC:
 
 ```json
-{ "query_text": "string", "top_k": 8, "filters": { "sector": "string|null", "date_from": "date|null" } }
+{ "query_embedding": "float[]", "match_count": 8, "filter": { "sector": "string|null", "date_from": "date|null" } }
 ```
+
+Caller-facing contract (before embedding): `{ "query_text": "string", "top_k": 8, "filters": { "sector": null, "date_from": null } }`.
 
 Output:
 

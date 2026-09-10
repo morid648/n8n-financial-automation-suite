@@ -51,6 +51,8 @@ Currently: `Webhook ──main──> Context_Memory_Buffer`.
 
 **Fix:** delete that `main` edge; add `Context_Memory_Buffer ──ai_memory──> NLP_Financial_Agent`.
 
+> Vector store per workflow: **Pinecone** for Analyst Screening, Investor Relations, Market Sentiment; **Supabase** (pgvector) for Macro Thematic Ideation (decided 2026-09-11, T1.1). Wiring is identical; only the store node type and its credential differ.
+
 ### 2.4 Orphaned RAG helper nodes (PRD 3.2) — the 4 RAG workflows
 
 `Cohere_Vector_Embeddings`, `Vector_DB_Insert` / `Vector_DB_Query`, `Vector_Retrieval_Tool`, `Context_Memory_Buffer` are all orphaned from the agent. Wire:

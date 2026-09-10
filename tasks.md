@@ -8,15 +8,19 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · **(BLOCKING)** =
 
 ## Execution status (2026-09-11)
 
-**Done:** Phase 0 scaffold (except T0.4), all of Phase 1 spec work ([`docs/SCHEMAS.md`](docs/SCHEMAS.md), [`docs/STANDARDS.md`](docs/STANDARDS.md)), Phase 3 documentation ([`docs/LANGCHAIN_WIRING_CHECKLIST.md`](docs/LANGCHAIN_WIRING_CHECKLIST.md)). Committed.
+**Done — everything not requiring the n8n JSON files:**
+- Phase 0 scaffold (T0.1–T0.3, T0.5–T0.7). Git repo initialised, 3 commits.
+- Phase 1: all specs written — [`docs/SCHEMAS.md`](docs/SCHEMAS.md) (T1.2, T1.4–T1.12), [`docs/STANDARDS.md`](docs/STANDARDS.md) (T1.13–T1.15). All 3 blocking decisions resolved by the user: T1.1 = **Supabase**, T1.2 = **classifier-decides**, T1.3 = **dry-run + approval gate**.
+- Phase 3: wiring fully documented in [`docs/LANGCHAIN_WIRING_CHECKLIST.md`](docs/LANGCHAIN_WIRING_CHECKLIST.md) (T3.1–T3.5).
 
-**Hard-blocked — cannot proceed without the user:**
-- **T0.4 / T3.6 / all of Phases 2, 4, 5, 6:** the 8 n8n skeleton `.json` exports are not in this repo. Every JSON-editing and testing task needs them plus a running n8n instance and live credentials (Gmail, PostgreSQL, Pinecone/Supabase, Telegram, Gemini, Anthropic, APITemplate.io) — none of which are available here.
-- **T1.1** — Macro vector store: Supabase or Pinecone?
-- **T1.2** — Data Sanitization: what exactly makes an email "flagged"?
-- **T1.3** — Data Sanitization: approval gate, dry-run, or both?
+**Hard-blocked — needs the 8 n8n skeleton `.json` exports (not in this repo) + a running n8n instance + live credentials:**
+- **T0.4** — drop the JSON exports into `workflows/<name>/`.
+- **T3.6** — build the reference RAG workflow JSON.
+- **All of Phases 2, 4, 5, 6** — every task edits a workflow JSON or runs it end-to-end.
 
-**Assumptions baked into specs that the user should confirm:** T1.7 (`Gmail_Operations` = ack reply + label), T1.8 (only `billing` is alert-critical), model defaults in T1.15.
+To unblock: add the 8 `.json` files (or point me at them) and provide/confirm the n8n environment.
+
+**Assumptions in the specs to confirm:** T1.7 (`Gmail_Operations` = ack reply + `AR/processed` label), T1.8 (only `billing` is alert-critical), model defaults in T1.15.
 
 ---
 
@@ -40,9 +44,9 @@ Pure decision/documentation tasks. Each unblocks concrete build work later.
 
 ### Blocking decisions
 
-- [ ] **T1.1 (BLOCKING)** Resolve Macro Thematic Ideation vector store: decide **Supabase vs Pinecone** (PRD 3.5). Record decision + rationale in `workflows/macro-thematic-ideation/README.md`. — deps: none · **NEEDS USER DECISION**
-- [ ] **T1.2 (BLOCKING)** Define exactly what "flagged" means for Data Sanitization Cron — which Gmail label/filter/query identifies a deletion candidate (PRD 3.7 / 5.5). Document in that workflow's README. — deps: none · **NEEDS USER DECISION**
-- [ ] **T1.3 (BLOCKING)** Decide Data Sanitization Cron safeguard mechanism: (a) pre-delete Telegram approve/deny gate, or (b) dry-run config flag logging candidates for first N runs — or both. Record the chosen design. — deps: T1.2 · **NEEDS USER DECISION**
+- [x] **T1.1 (BLOCKING)** Macro vector store → **Supabase** (pgvector). Recorded in [`workflows/macro-thematic-ideation/README.md`](workflows/macro-thematic-ideation/README.md) + checklist §2.4 note.
+- [x] **T1.2 (BLOCKING)** "Flagged" → **LLM classifier decides** (`verdict ∈ {scam,junk}` & `confidence ≥ 0.9`). Recorded in [`workflows/data-sanitization-cron/README.md`](workflows/data-sanitization-cron/README.md); classifier schema in [`docs/SCHEMAS.md`](docs/SCHEMAS.md) T1.2.
+- [x] **T1.3 (BLOCKING)** Safeguard → **both**: dry-run for first N runs, then Telegram approve/deny gate. Recorded in the workflow README + [`docs/STANDARDS.md`](docs/STANDARDS.md) T1.15.
 
 ### Output & taxonomy schemas (one task each — these become the agents' structured output contracts)
 
@@ -54,7 +58,7 @@ Drafted in [`docs/SCHEMAS.md`](docs/SCHEMAS.md). Mark `[x]` once the user confir
 - [x] **T1.7** Automated Accounts Receivable: `Gmail_Operations` spec'd as ack-reply + label — [`docs/SCHEMAS.md#t17`](docs/SCHEMAS.md). _(assumption — confirm)_
 - [x] **T1.8** Corporate Comms Triage: closed taxonomy `{billing*, project_update, spam, other}`, `billing` = critical — [`docs/SCHEMAS.md#t18`](docs/SCHEMAS.md). _(assumption — confirm critical set)_
 - [x] **T1.9** Investor Relations NLP: executive summary schema — [`docs/SCHEMAS.md#t19`](docs/SCHEMAS.md).
-- [~] **T1.10** Macro Thematic Ideation: retrieval contract + ideation output schema drafted — [`docs/SCHEMAS.md#t110`](docs/SCHEMAS.md). Retrieval contract still depends on T1.1. — deps: T1.1
+- [x] **T1.10** Macro Thematic Ideation: retrieval contract (Supabase `match_documents` RPC) + ideation output schema — [`docs/SCHEMAS.md#t110`](docs/SCHEMAS.md).
 - [x] **T1.11** Market Sentiment Engine: sentiment output schema — [`docs/SCHEMAS.md#t111`](docs/SCHEMAS.md).
 - [x] **T1.12** Shared audit-log row schema — [`docs/SCHEMAS.md#t112`](docs/SCHEMAS.md).
 

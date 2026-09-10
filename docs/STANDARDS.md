@@ -62,5 +62,8 @@ Each workflow exposes tunables as **workflow-level static data / a single `Set` 
 | `chunk_size` / `chunk_overlap` | Config node → `Text_Chunking_Engine` | 800 / 100 | embedding cost on ingest |
 | `max_tokens` | Config node → chat model | 1024 | cap response length |
 | `enabled` | Config node | true | kill switch per workflow |
+| `dry_run` / `DRY_RUN_UNTIL` | Config node (Sanitization Cron) | true / 10 | log candidates without deleting for the first N runs |
+| `min_confidence` | Config node (Sanitization Cron) | 0.9 | classifier threshold to treat an email as a deletion candidate |
+| `APPROVAL_TIMEOUT` | Config node (Sanitization Cron) | 6h | no Telegram response within window = deny |
 
 Rule: no model name or batch size hard-coded in a downstream node — all read from the Config node via expressions (`={{ $json.config.model }}` pattern or workflow static data).
