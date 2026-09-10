@@ -1,0 +1,21 @@
+# Secrets / credentials — never commit
+.env
+.env.*
+*.credentials.json
+credentials/
+n8n-credentials-export*.json
+
+# n8n local runtime
+.n8n/
+*.sqlite
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+scratch/
+tmp/
