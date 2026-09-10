@@ -6,17 +6,31 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · **(BLOCKING)** =
 
 ---
 
+## Execution status (2026-09-11)
+
+**Done:** Phase 0 scaffold (except T0.4), all of Phase 1 spec work ([`docs/SCHEMAS.md`](docs/SCHEMAS.md), [`docs/STANDARDS.md`](docs/STANDARDS.md)), Phase 3 documentation ([`docs/LANGCHAIN_WIRING_CHECKLIST.md`](docs/LANGCHAIN_WIRING_CHECKLIST.md)). Committed.
+
+**Hard-blocked — cannot proceed without the user:**
+- **T0.4 / T3.6 / all of Phases 2, 4, 5, 6:** the 8 n8n skeleton `.json` exports are not in this repo. Every JSON-editing and testing task needs them plus a running n8n instance and live credentials (Gmail, PostgreSQL, Pinecone/Supabase, Telegram, Gemini, Anthropic, APITemplate.io) — none of which are available here.
+- **T1.1** — Macro vector store: Supabase or Pinecone?
+- **T1.2** — Data Sanitization: what exactly makes an email "flagged"?
+- **T1.3** — Data Sanitization: approval gate, dry-run, or both?
+
+**Assumptions baked into specs that the user should confirm:** T1.7 (`Gmail_Operations` = ack reply + label), T1.8 (only `billing` is alert-critical), model defaults in T1.15.
+
+---
+
 ## Phase 0 — Repository scaffolding & standards
 
 Establishes the structure every later task writes into. No workflow logic yet.
 
-- [ ] **T0.1** Create the repo directory layout from README: `docs/`, `workflows/<name>/` for all 8 workflows. — deps: none
-- [ ] **T0.2** Move `prd.md` to `docs/PRD.md`; update the link in the root `README.md`. — deps: T0.1
-- [ ] **T0.3** Add `LICENSE` (MIT) at repo root. — deps: T0.1
-- [ ] **T0.4** Place each skeleton `.json` export into its `workflows/<name>/` folder with the filename given in the README. — deps: T0.1
-- [ ] **T0.5** Create a stub `README.md` in each of the 8 workflow folders with the standard section headings (overview, tech stack, node reference, required credentials, known gaps, setup steps). — deps: T0.1
-- [ ] **T0.6** Write `docs/LANGCHAIN_WIRING_CHECKLIST.md` skeleton (filled in Phase 2). — deps: T0.1
-- [ ] **T0.7** Initialise git repo, add `.gitignore` (exclude credential exports, `.env`), commit the scaffold. — deps: T0.1–T0.5
+- [x] **T0.1** Create the repo directory layout from README: `docs/`, `workflows/<name>/` for all 8 workflows. — deps: none
+- [x] **T0.2** Move `prd.md` to `docs/PRD.md`; update the link in the root `README.md`. — deps: T0.1 · _(also renamed root README to `README.md`; README already linked `docs/PRD.md`)_
+- [x] **T0.3** Add `LICENSE` (MIT) at repo root. — deps: T0.1
+- [ ] **T0.4** Place each skeleton `.json` export into its `workflows/<name>/` folder with the filename given in the README. — deps: T0.1 · **BLOCKED — skeleton JSON exports are not in this repo; user must supply them.**
+- [x] **T0.5** Create a stub `README.md` in each of the 8 workflow folders with the standard section headings (overview, tech stack, node reference, required credentials, known gaps, setup steps). — deps: T0.1
+- [x] **T0.6** Write `docs/LANGCHAIN_WIRING_CHECKLIST.md` (filled beyond a skeleton — also covers T3.1–T3.5 documentation). — deps: T0.1
+- [x] **T0.7** Initialise git repo, add `.gitignore` (exclude credential exports, `.env`), commit the scaffold. — deps: T0.1–T0.5
 
 ---
 
@@ -26,27 +40,31 @@ Pure decision/documentation tasks. Each unblocks concrete build work later.
 
 ### Blocking decisions
 
-- [ ] **T1.1 (BLOCKING)** Resolve Macro Thematic Ideation vector store: decide **Supabase vs Pinecone** (PRD 3.5). Record decision + rationale in `workflows/macro-thematic-ideation/README.md`. — deps: none
-- [ ] **T1.2 (BLOCKING)** Define exactly what "flagged" means for Data Sanitization Cron — which Gmail label/filter/query identifies a deletion candidate (PRD 3.7 / 5.5). Document in that workflow's README. — deps: none
-- [ ] **T1.3 (BLOCKING)** Decide Data Sanitization Cron safeguard mechanism: (a) pre-delete Telegram approve/deny gate, or (b) dry-run config flag logging candidates for first N runs — or both. Record the chosen design. — deps: T1.2
+- [ ] **T1.1 (BLOCKING)** Resolve Macro Thematic Ideation vector store: decide **Supabase vs Pinecone** (PRD 3.5). Record decision + rationale in `workflows/macro-thematic-ideation/README.md`. — deps: none · **NEEDS USER DECISION**
+- [ ] **T1.2 (BLOCKING)** Define exactly what "flagged" means for Data Sanitization Cron — which Gmail label/filter/query identifies a deletion candidate (PRD 3.7 / 5.5). Document in that workflow's README. — deps: none · **NEEDS USER DECISION**
+- [ ] **T1.3 (BLOCKING)** Decide Data Sanitization Cron safeguard mechanism: (a) pre-delete Telegram approve/deny gate, or (b) dry-run config flag logging candidates for first N runs — or both. Record the chosen design. — deps: T1.2 · **NEEDS USER DECISION**
 
 ### Output & taxonomy schemas (one task each — these become the agents' structured output contracts)
 
-- [ ] **T1.4** SQL Data Governance Agent: define the structured JSON verdict schema (per-check: check name, table/column, status, severity, sample rows, remediation note). — deps: none
-- [ ] **T1.5** Analyst Screening Pipeline: define extraction schema — required skills (SQL, Power BI, Python/Pandas/NumPy, Excel-at-scale), years, evidence snippet — plus the scoring/ranking rubric. — deps: none
-- [ ] **T1.6** Automated Accounts Receivable: define invoice extraction schema (invoice number, vendor, amount, due date, currency) and the pre-ledger validation rules (e.g. amount present & numeric, due date parseable). — deps: none
-- [ ] **T1.7** Automated Accounts Receivable: document what `Gmail_Operations` does (send acknowledgment / forward to AP / label) — pick one and spec it. — deps: none
-- [ ] **T1.8** Corporate Comms Triage: define the closed category taxonomy (billing, project update, spam, other) and which categories are "critical" (alert-worthy). — deps: none
-- [ ] **T1.9** Investor Relations NLP: define the "structured executive summary" schema (key asks, sentiment, urgency, suggested owner). — deps: none
-- [ ] **T1.10** Macro Thematic Ideation: define the retrieval query contract and ideation output schema (theme, supporting data points, sectors affected, confidence). — deps: T1.1
-- [ ] **T1.11** Market Sentiment Engine: define sentiment output schema (score, category, source snippet) suitable for the SOTP/brand-equity overlay. — deps: none
-- [ ] **T1.12** Define the shared audit-log row schema for every workflow that writes to `Master_Ledger_Update` or deletes data (workflow, action, target, timestamp, reason, actor/approver). — deps: none
+Drafted in [`docs/SCHEMAS.md`](docs/SCHEMAS.md). Mark `[x]` once the user confirms each; T1.7 and T1.8 embed choices the user may want to change.
+
+- [x] **T1.4** SQL Data Governance Agent: structured JSON verdict schema — [`docs/SCHEMAS.md#t14`](docs/SCHEMAS.md).
+- [x] **T1.5** Analyst Screening Pipeline: extraction schema + scoring/ranking rubric — [`docs/SCHEMAS.md#t15`](docs/SCHEMAS.md).
+- [x] **T1.6** Automated Accounts Receivable: invoice extraction schema + pre-ledger validation rules — [`docs/SCHEMAS.md#t16`](docs/SCHEMAS.md).
+- [x] **T1.7** Automated Accounts Receivable: `Gmail_Operations` spec'd as ack-reply + label — [`docs/SCHEMAS.md#t17`](docs/SCHEMAS.md). _(assumption — confirm)_
+- [x] **T1.8** Corporate Comms Triage: closed taxonomy `{billing*, project_update, spam, other}`, `billing` = critical — [`docs/SCHEMAS.md#t18`](docs/SCHEMAS.md). _(assumption — confirm critical set)_
+- [x] **T1.9** Investor Relations NLP: executive summary schema — [`docs/SCHEMAS.md#t19`](docs/SCHEMAS.md).
+- [~] **T1.10** Macro Thematic Ideation: retrieval contract + ideation output schema drafted — [`docs/SCHEMAS.md#t110`](docs/SCHEMAS.md). Retrieval contract still depends on T1.1. — deps: T1.1
+- [x] **T1.11** Market Sentiment Engine: sentiment output schema — [`docs/SCHEMAS.md#t111`](docs/SCHEMAS.md).
+- [x] **T1.12** Shared audit-log row schema — [`docs/SCHEMAS.md#t112`](docs/SCHEMAS.md).
 
 ### Cross-cutting standards
 
-- [ ] **T1.13** Document the credential-scoping standard: least-privilege read-only creds for SQL governance & vector queries; explicit approval/dry-run for every destructive action. — deps: none
-- [ ] **T1.14** Define the standard AI-node error-handling pattern: "Continue on Fail" + named error branch + error-log destination. — deps: none
-- [ ] **T1.15** Define per-workflow cost-control knobs (batch size, model choice) and where they live as workflow-level settings, esp. the 4 webhook RAG workflows. — deps: none
+Drafted in [`docs/STANDARDS.md`](docs/STANDARDS.md).
+
+- [x] **T1.13** Credential-scoping standard — [`docs/STANDARDS.md#t113`](docs/STANDARDS.md).
+- [x] **T1.14** AI-node error-handling pattern — [`docs/STANDARDS.md#t114`](docs/STANDARDS.md).
+- [x] **T1.15** Per-workflow cost-control knobs (Config node pattern) — [`docs/STANDARDS.md#t115`](docs/STANDARDS.md).
 
 ---
 
@@ -71,12 +89,12 @@ PRD Section 6.1: fix and test this before any other workflow. Fully self-contain
 
 PRD 3.2–3.4, 6.2. Build the reusable pattern before touching the 5 affected workflows.
 
-- [ ] **T3.1** Fill in `docs/LANGCHAIN_WIRING_CHECKLIST.md`: for each AI node type, list the required sub-connections (`ai_languageModel`, `ai_tool`, `ai_outputParser`, `ai_memory`, `ai_embedding`, `ai_vectorStore`). — deps: T0.6
-- [ ] **T3.2** Document the fix for PRD 3.2 (no language model wired): which node connects to which agent/chain via `ai_languageModel`, per workflow. — deps: T3.1
-- [ ] **T3.3** Document the fix for PRD 3.3 (agent has no main-path input in the 4 RAG workflows): specify the bridging `Set`/`Code` node that passes the webhook payload to the agent's `text` input. — deps: T3.1
-- [ ] **T3.4** Document the fix for PRD 3.4 (`Context_Memory_Buffer` on the main path): remove the webhook→memory main edge; add `ai_memory` edge to `NLP_Financial_Agent`. — deps: T3.1
-- [ ] **T3.5** Document the fix for PRD 3.8 (orphaned `Gemini_Inference_Engine` in AR + Comms Triage): wire via `ai_languageModel` to the parser/classifier nodes. — deps: T3.1
-- [ ] **T3.6** Build one reference workflow JSON demonstrating the corrected RAG wiring (used as the copy-source for the 4 clones). — deps: T3.2–T3.4
+- [x] **T3.1** `docs/LANGCHAIN_WIRING_CHECKLIST.md` §1 — sub-connection types and what attaches with each. — deps: T0.6
+- [x] **T3.2** Checklist §2.1 — per-workflow `ai_languageModel` fix map (PRD 3.2). — deps: T3.1
+- [x] **T3.3** Checklist §2.2 — the `Bridge_Set_AgentInput` node spec for the 4 RAG workflows (PRD 3.3). — deps: T3.1
+- [x] **T3.4** Checklist §2.3 — remove webhook→memory main edge, add `ai_memory` (PRD 3.4). — deps: T3.1
+- [x] **T3.5** Checklist §2.1 note + §2.4 — orphaned `Gemini_Inference_Engine` / RAG helper wiring (PRD 3.8). — deps: T3.1
+- [ ] **T3.6** Build one reference workflow JSON demonstrating the corrected RAG wiring (copy-source for the 4 clones). — deps: T3.2–T3.4 · **BLOCKED — needs the skeleton JSON (T0.4).**
 
 ---
 
