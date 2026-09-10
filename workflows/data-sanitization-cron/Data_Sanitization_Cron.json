@@ -1,0 +1,94 @@
+{
+  "name": "Data_Sanitization_Cron",
+  "nodes": [
+    {
+      "name": "Chron_Scheduler",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -880,
+        80
+      ]
+    },
+    {
+      "name": "Gmail_Fetch_Flagged",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        -672,
+        80
+      ]
+    },
+    {
+      "name": "Gmail_Delete_Op",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        -464,
+        80
+      ]
+    },
+    {
+      "name": "Data_Aggregation",
+      "type": "n8n-nodes-base.summarize",
+      "position": [
+        -272,
+        80
+      ]
+    },
+    {
+      "name": "Telegram_Executive_Alert",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        -64,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Chron_Scheduler": {
+      "main": [
+        [
+          {
+            "node": "Gmail_Fetch_Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail_Fetch_Flagged": {
+      "main": [
+        [
+          {
+            "node": "Gmail_Delete_Op",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail_Delete_Op": {
+      "main": [
+        [
+          {
+            "node": "Data_Aggregation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_Aggregation": {
+      "main": [
+        [
+          {
+            "node": "Telegram_Executive_Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

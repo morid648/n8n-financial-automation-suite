@@ -1,0 +1,149 @@
+{
+  "name": "Analyst_Screening_Pipeline",
+  "nodes": [
+    {
+      "name": "Ingest_API_Payload",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -300,
+        0
+      ]
+    },
+    {
+      "name": "Text_Chunking_Engine",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterCharacterTextSplitter",
+      "position": [
+        -130,
+        0
+      ],
+      "parameters": {
+        "chunkSize": 400,
+        "chunkOverlap": 40
+      }
+    },
+    {
+      "name": "Cohere_Vector_Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "position": [
+        70,
+        0
+      ]
+    },
+    {
+      "name": "Vector_DB_Insert",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "position": [
+        270,
+        0
+      ]
+    },
+    {
+      "name": "Vector_DB_Query",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "position": [
+        270,
+        -180
+      ]
+    },
+    {
+      "name": "Vector_Retrieval_Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "position": [
+        450,
+        -180
+      ]
+    },
+    {
+      "name": "Context_Memory_Buffer",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        450,
+        -40
+      ]
+    },
+    {
+      "name": "LLM_Inference_Engine",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "position": [
+        450,
+        -340
+      ]
+    },
+    {
+      "name": "NLP_Financial_Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        720,
+        -40
+      ]
+    },
+    {
+      "name": "Master_Ledger_Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        930,
+        -40
+      ]
+    },
+    {
+      "name": "Trigger_Executive_Alert",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        930,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Ingest_API_Payload": {
+      "main": [
+        [
+          {
+            "node": "Text_Chunking_Engine",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Context_Memory_Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text_Chunking_Engine": {
+      "main": [
+        [
+          {
+            "node": "Cohere_Vector_Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NLP_Financial_Agent": {
+      "main": [
+        [
+          {
+            "node": "Master_Ledger_Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "onError": [
+        [
+          {
+            "node": "Trigger_Executive_Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

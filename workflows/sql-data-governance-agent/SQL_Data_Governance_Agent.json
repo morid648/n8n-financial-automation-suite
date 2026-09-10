@@ -1,0 +1,129 @@
+{
+  "name": "SQL_Data_Governance_Agent",
+  "nodes": [
+    {
+      "name": "Manual_Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -1232,
+        16
+      ]
+    },
+    {
+      "name": "Data_Splitter",
+      "type": "n8n-nodes-base.splitOut",
+      "position": [
+        -704,
+        16
+      ]
+    },
+    {
+      "name": "Data_Merge_Join",
+      "type": "n8n-nodes-base.merge",
+      "position": [
+        176,
+        352
+      ]
+    },
+    {
+      "name": "Batch_Iterator",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        160,
+        -112
+      ]
+    },
+    {
+      "name": "Schema_Validation_Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "position": [
+        1072,
+        112
+      ]
+    },
+    {
+      "name": "Data_Aggregator",
+      "type": "n8n-nodes-base.aggregate",
+      "position": [
+        368,
+        352
+      ]
+    },
+    {
+      "name": "NLP_Financial_Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        784,
+        -112
+      ]
+    },
+    {
+      "name": "PostgreSQL_Query_Engine",
+      "type": "n8n-nodes-base.postgresTool",
+      "position": [
+        944,
+        96
+      ]
+    }
+  ],
+  "connections": {
+    "Manual_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data_Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_Splitter": {
+      "main": [
+        [
+          {
+            "node": "Batch_Iterator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch_Iterator": {
+      "main": [
+        [
+          {
+            "node": "NLP_Financial_Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NLP_Financial_Agent": {
+      "main": [
+        [
+          {
+            "node": "Data_Merge_Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_Merge_Join": {
+      "main": [
+        [
+          {
+            "node": "Data_Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

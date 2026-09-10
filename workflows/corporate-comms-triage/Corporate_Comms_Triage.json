@@ -1,0 +1,83 @@
+{
+  "name": "Corporate_Comms_Triage",
+  "nodes": [
+    {
+      "name": "Ingest_Inbox_Stream",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "position": [
+        -608,
+        256
+      ]
+    },
+    {
+      "name": "NLP_Text_Classifier",
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "position": [
+        -416,
+        192
+      ]
+    },
+    {
+      "name": "Gemini_Inference_Engine",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        -416,
+        496
+      ]
+    },
+    {
+      "name": "LLM_Execution_Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "position": [
+        480,
+        144
+      ]
+    },
+    {
+      "name": "Telegram_Executive_Alert",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        800,
+        144
+      ]
+    }
+  ],
+  "connections": {
+    "Ingest_Inbox_Stream": {
+      "main": [
+        [
+          {
+            "node": "NLP_Text_Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NLP_Text_Classifier": {
+      "main": [
+        [
+          {
+            "node": "LLM_Execution_Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM_Execution_Chain": {
+      "main": [
+        [
+          {
+            "node": "Telegram_Executive_Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

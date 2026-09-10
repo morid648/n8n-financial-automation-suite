@@ -1,0 +1,102 @@
+{
+  "name": "Automated_Accounts_Receivable",
+  "nodes": [
+    {
+      "name": "Ingest_Inbox_Stream",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "position": [
+        -240,
+        -20
+      ]
+    },
+    {
+      "name": "Quantitative_Data_Parser",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "position": [
+        -20,
+        -20
+      ]
+    },
+    {
+      "name": "Gemini_Inference_Engine",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        180,
+        200
+      ]
+    },
+    {
+      "name": "Generate_PDF_Record",
+      "type": "n8n-nodes-base.apiTemplateIo",
+      "position": [
+        340,
+        -20
+      ]
+    },
+    {
+      "name": "Gmail_Operations",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        560,
+        -20
+      ]
+    },
+    {
+      "name": "Master_Ledger_Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        780,
+        -20
+      ]
+    }
+  ],
+  "connections": {
+    "Ingest_Inbox_Stream": {
+      "main": [
+        [
+          {
+            "node": "Quantitative_Data_Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quantitative_Data_Parser": {
+      "main": [
+        [
+          {
+            "node": "Generate_PDF_Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate_PDF_Record": {
+      "main": [
+        [
+          {
+            "node": "Gmail_Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail_Operations": {
+      "main": [
+        [
+          {
+            "node": "Master_Ledger_Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
