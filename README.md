@@ -51,16 +51,18 @@ n8n-financial-automation-suite/
 
 ## 🗂️ Workflows
 
+All 8 workflow JSONs are fully wired (agents, chains, classifiers, and extractors all have their `ai_languageModel`/`ai_memory` connections in place — see [tasks.md](tasks.md#execution-status) for the full structural changelog). What's left for every workflow is the same: import-testing against a live n8n instance with real credentials (each JSON ships with `REPLACE_*` placeholders) — not further wiring work.
+
 | Workflow | Purpose | Status |
 |---|---|---|
-| [SQL Data Governance Agent](workflows/sql-data-governance-agent/) | LLM agent runs read-only SQL data-quality checks against PostgreSQL | Skeleton — needs agent wiring |
-| [Analyst Screening Pipeline](workflows/analyst-screening-pipeline/) | RAG-based resume screening for quant roles | Skeleton — needs agent wiring |
-| [Automated Accounts Receivable](workflows/automated-accounts-receivable/) | Parses invoice emails, generates PDF records, updates ledger | Skeleton — needs LLM wiring |
-| [Corporate Comms Triage](workflows/corporate-comms-triage/) | Classifies inbound mail, alerts on critical items | Skeleton — needs LLM wiring + category branching |
-| [Data Sanitization Cron](workflows/data-sanitization-cron/) | Scheduled mailbox cleanup of flagged/scam emails | ⚠️ Needs an approval gate before deletion — see PRD |
-| [Investor Relations NLP](workflows/investor-relations-nlp/) | Distills stakeholder comms into executive summaries | Skeleton — needs agent wiring |
-| [Macro Thematic Ideation](workflows/macro-thematic-ideation/) | RAG retrieval over macro/sector data for research ideation | Skeleton — vector store choice needs resolving |
-| [Market Sentiment Engine](workflows/market-sentiment-engine/) | Classifies unstructured sentiment via vector search | Skeleton — needs agent wiring |
+| [SQL Data Governance Agent](workflows/sql-data-governance-agent/) | LLM agent runs read-only SQL data-quality checks against PostgreSQL | Wired — needs live n8n import test |
+| [Analyst Screening Pipeline](workflows/analyst-screening-pipeline/) | RAG-based resume screening for quant roles | Wired — needs live n8n import test |
+| [Automated Accounts Receivable](workflows/automated-accounts-receivable/) | Parses invoice emails, generates PDF records, updates ledger | Wired — needs live n8n import test |
+| [Corporate Comms Triage](workflows/corporate-comms-triage/) | Classifies inbound mail, alerts on critical items | Wired — category branching implemented |
+| [Data Sanitization Cron](workflows/data-sanitization-cron/) | Scheduled mailbox cleanup of flagged/scam emails | Wired — classifier → dry-run gate → Telegram approve/deny → delete |
+| [Investor Relations NLP](workflows/investor-relations-nlp/) | Distills stakeholder comms into executive summaries | Wired — needs live n8n import test |
+| [Macro Thematic Ideation](workflows/macro-thematic-ideation/) | RAG retrieval over macro/sector data for research ideation | Wired — uses Supabase vector store |
+| [Market Sentiment Engine](workflows/market-sentiment-engine/) | Classifies unstructured sentiment via vector search | Wired — needs live n8n import test |
 
 ## 🛠️ Tech Stack Across the Suite
 
