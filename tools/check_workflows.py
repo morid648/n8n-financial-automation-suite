@@ -2,7 +2,7 @@
 """Structural lint for the generated n8n workflows."""
 import json, glob, os
 
-ROOT = r"G:\Data Analytics\19.Portfolio\data-governance-sql\workflows"
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workflows")
 AI_LM_CONSUMERS = {
     "@n8n/n8n-nodes-langchain.agent",
     "@n8n/n8n-nodes-langchain.chainLlm",

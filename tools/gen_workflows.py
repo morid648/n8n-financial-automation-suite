@@ -13,7 +13,7 @@ Applies the fixes from docs/PRD.md section 3 and docs/LANGCHAIN_WIRING_CHECKLIST
 import json
 import os
 
-ROOT = r"G:\Data Analytics\19.Portfolio\data-governance-sql\workflows"
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workflows")
 
 SHEET = {"__rl": True, "value": "REPLACE_SHEET_ID", "mode": "id"}
 
