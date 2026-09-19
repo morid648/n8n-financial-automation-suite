@@ -203,28 +203,42 @@ def rag_workflow(*, name, folder, fname, description, path, vector_store,
     return wf(name, description, nodes, conn)
 
 
-# error-branch nodes shared by RAG workflows
-def rag_error_nodes(workflow):
+# error-branch nodes (Error_Context Set + Error_Audit_Write) shared by every workflow.
+# Each workflow supplies its own workflow name / action / target / reason / detail expressions
+# and node positions; the 10-field audit-row shape is identical everywhere.
+def error_nodes(workflow, action, target_expr, reason_expr, pos_ctx, pos_audit, detail_expr=""):
     return [
-        node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, [280, 140], {
+        node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, list(pos_ctx), {
             "assignments": {"assignments": [
                 {"id": "e1", "name": "ts", "value": "={{ $now.toISO() }}", "type": "string"},
                 {"id": "e2", "name": "workflow", "value": workflow, "type": "string"},
                 {"id": "e3", "name": "run_id", "value": "={{ $execution.id }}", "type": "string"},
-                {"id": "e4", "name": "action", "value": "agent_failure", "type": "string"},
-                {"id": "e5", "name": "target", "value": "={{ $('Bridge_Agent_Input').item.json.source_ref }}", "type": "string"},
-                {"id": "e6", "name": "reason", "value": "={{ $json.error && $json.error.message ? $json.error.message : 'agent/parser error' }}", "type": "string"},
+                {"id": "e4", "name": "action", "value": action, "type": "string"},
+                {"id": "e5", "name": "target", "value": target_expr, "type": "string"},
+                {"id": "e6", "name": "reason", "value": reason_expr, "type": "string"},
                 {"id": "e7", "name": "actor", "value": "system", "type": "string"},
                 {"id": "e8", "name": "approved_by", "value": "", "type": "string"},
                 {"id": "e9", "name": "outcome", "value": "failed", "type": "string"},
-                {"id": "e10", "name": "detail", "value": "={{ $json.error && $json.error.stack ? $json.error.stack : '' }}", "type": "string"},
+                {"id": "e10", "name": "detail", "value": detail_expr, "type": "string"},
             ]}, "options": {}
         }),
-        audit_append("n-erraudit", "Error_Audit_Write", [500, 140], {
+        audit_append("n-erraudit", "Error_Audit_Write", list(pos_audit), {
             "ts": "={{ $json.ts }}", "workflow": "={{ $json.workflow }}", "run_id": "={{ $json.run_id }}",
             "action": "={{ $json.action }}", "target": "={{ $json.target }}", "reason": "={{ $json.reason }}",
             "actor": "system", "approved_by": "", "outcome": "failed", "detail": "={{ $json.detail }}"
         }),
+    ]
+
+
+# error-branch nodes shared by RAG workflows (Error_Context + Error_Audit_Write + exec alert)
+def rag_error_nodes(workflow):
+    return error_nodes(
+        workflow, "agent_failure",
+        target_expr="={{ $('Bridge_Agent_Input').item.json.source_ref }}",
+        reason_expr="={{ $json.error && $json.error.message ? $json.error.message : 'agent/parser error' }}",
+        pos_ctx=(280, 140), pos_audit=(500, 140),
+        detail_expr="={{ $json.error && $json.error.stack ? $json.error.stack : '' }}",
+    ) + [
         node("n-erralert", "Trigger_Executive_Alert", "n8n-nodes-base.slack", 2.3, [720, 140], {
             "resource": "message", "operation": "post", "select": "channel",
             "channelId": {"__rl": True, "value": "REPLACE_SLACK_CHANNEL", "mode": "id"},
@@ -637,26 +651,12 @@ ar_nodes = [
                                 "={{ $json.invoice_number || $json.source_email_id }}",
                                 "={{ 'validation failed: ' + $json.validation_errors }}",
                                 outcome="skipped"))),
-    node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, [-340, 220], {
-        "assignments": {"assignments": [
-            {"id": "e1", "name": "ts", "value": "={{ $now.toISO() }}", "type": "string"},
-            {"id": "e2", "name": "workflow", "value": "automated-accounts-receivable", "type": "string"},
-            {"id": "e3", "name": "run_id", "value": "={{ $execution.id }}", "type": "string"},
-            {"id": "e4", "name": "action", "value": "extractor_failure", "type": "string"},
-            {"id": "e5", "name": "target", "value": "={{ $('Ingest_Inbox_Stream').item.json.id }}", "type": "string"},
-            {"id": "e6", "name": "reason", "value": "={{ $json.error && $json.error.message ? $json.error.message : 'extractor error' }}", "type": "string"},
-            {"id": "e7", "name": "actor", "value": "system", "type": "string"},
-            {"id": "e8", "name": "approved_by", "value": "", "type": "string"},
-            {"id": "e9", "name": "outcome", "value": "failed", "type": "string"},
-            {"id": "e10", "name": "detail", "value": "", "type": "string"},
-        ]}, "options": {}
-    }),
-    audit_append("n-erraudit", "Error_Audit_Write", [-120, 220], {
-        "ts": "={{ $json.ts }}", "workflow": "={{ $json.workflow }}", "run_id": "={{ $json.run_id }}",
-        "action": "={{ $json.action }}", "target": "={{ $json.target }}", "reason": "={{ $json.reason }}",
-        "actor": "system", "approved_by": "", "outcome": "failed", "detail": "={{ $json.detail }}"
-    }),
-]
+] + error_nodes(
+    "automated-accounts-receivable", "extractor_failure",
+    target_expr="={{ $('Ingest_Inbox_Stream').item.json.id }}",
+    reason_expr="={{ $json.error && $json.error.message ? $json.error.message : 'extractor error' }}",
+    pos_ctx=(-340, 220), pos_audit=(-120, 220),
+)
 ar_conn = {
     "Ingest_Inbox_Stream": {"main": [[{"node": "Workflow_Config", "type": "main", "index": 0}]]},
     "Workflow_Config": {"main": [[{"node": "Enabled_Gate", "type": "main", "index": 0}]]},
@@ -739,26 +739,12 @@ comms_nodes = [
         "reason": "={{ $json.category || 'non-critical' }}", "actor": "system", "approved_by": "",
         "outcome": "success", "detail": ""
     }),
-    node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, [-560, 640], {
-        "assignments": {"assignments": [
-            {"id": "e1", "name": "ts", "value": "={{ $now.toISO() }}", "type": "string"},
-            {"id": "e2", "name": "workflow", "value": "corporate-comms-triage", "type": "string"},
-            {"id": "e3", "name": "run_id", "value": "={{ $execution.id }}", "type": "string"},
-            {"id": "e4", "name": "action", "value": "classifier_failure", "type": "string"},
-            {"id": "e5", "name": "target", "value": "={{ $('Ingest_Inbox_Stream').item.json.id }}", "type": "string"},
-            {"id": "e6", "name": "reason", "value": "={{ $json.error && $json.error.message ? $json.error.message : 'classifier/chain error' }}", "type": "string"},
-            {"id": "e7", "name": "actor", "value": "system", "type": "string"},
-            {"id": "e8", "name": "approved_by", "value": "", "type": "string"},
-            {"id": "e9", "name": "outcome", "value": "failed", "type": "string"},
-            {"id": "e10", "name": "detail", "value": "", "type": "string"},
-        ]}, "options": {}
-    }),
-    audit_append("n-erraudit", "Error_Audit_Write", [-340, 640], {
-        "ts": "={{ $json.ts }}", "workflow": "={{ $json.workflow }}", "run_id": "={{ $json.run_id }}",
-        "action": "={{ $json.action }}", "target": "={{ $json.target }}", "reason": "={{ $json.reason }}",
-        "actor": "system", "approved_by": "", "outcome": "failed", "detail": "={{ $json.detail }}"
-    }),
-]
+] + error_nodes(
+    "corporate-comms-triage", "classifier_failure",
+    target_expr="={{ $('Ingest_Inbox_Stream').item.json.id }}",
+    reason_expr="={{ $json.error && $json.error.message ? $json.error.message : 'classifier/chain error' }}",
+    pos_ctx=(-560, 640), pos_audit=(-340, 640),
+)
 comms_conn = {
     "Ingest_Inbox_Stream": {"main": [[{"node": "Workflow_Config", "type": "main", "index": 0}]]},
     "Workflow_Config": {"main": [[{"node": "Enabled_Gate", "type": "main", "index": 0}]]},
@@ -931,26 +917,13 @@ sanit_nodes = [
         "text": "=Data Sanitization run {{ $execution.id }} complete.",
         "additionalFields": {"appendAttribution": False}
     }, {"telegramApi": {"id": "REPLACE_TELEGRAM_CRED", "name": "Telegram bot"}}),
-    node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, [-280, 320], {
-        "assignments": {"assignments": [
-            {"id": "e1", "name": "ts", "value": "={{ $now.toISO() }}", "type": "string"},
-            {"id": "e2", "name": "workflow", "value": "data-sanitization-cron", "type": "string"},
-            {"id": "e3", "name": "run_id", "value": "={{ $execution.id }}", "type": "string"},
-            {"id": "e4", "name": "action", "value": "classifier_failure", "type": "string"},
-            {"id": "e5", "name": "target", "value": "={{ $json.message_id || '' }}", "type": "string"},
-            {"id": "e6", "name": "reason", "value": "={{ $json.error && $json.error.message ? $json.error.message : 'classifier error' }}", "type": "string"},
-            {"id": "e7", "name": "actor", "value": "system", "type": "string"},
-            {"id": "e8", "name": "approved_by", "value": "", "type": "string"},
-            {"id": "e9", "name": "outcome", "value": "failed", "type": "string"},
-            {"id": "e10", "name": "detail", "value": "no deletion attempted", "type": "string"},
-        ]}, "options": {}
-    }),
-    audit_append("n-erraudit", "Error_Audit_Write", [-60, 320], {
-        "ts": "={{ $json.ts }}", "workflow": "={{ $json.workflow }}", "run_id": "={{ $json.run_id }}",
-        "action": "={{ $json.action }}", "target": "={{ $json.target }}", "reason": "={{ $json.reason }}",
-        "actor": "system", "approved_by": "", "outcome": "failed", "detail": "={{ $json.detail }}"
-    }),
-]
+] + error_nodes(
+    "data-sanitization-cron", "classifier_failure",
+    target_expr="={{ $json.message_id || '' }}",
+    reason_expr="={{ $json.error && $json.error.message ? $json.error.message : 'classifier error' }}",
+    pos_ctx=(-280, 320), pos_audit=(-60, 320),
+    detail_expr="no deletion attempted",
+)
 sanit_conn = {
     "Chron_Scheduler": {"main": [[{"node": "Workflow_Config", "type": "main", "index": 0}]]},
     "Workflow_Config": {"main": [[{"node": "Enabled_Gate", "type": "main", "index": 0}]]},
@@ -1075,26 +1048,12 @@ gov_nodes = [
         "action": "governance_run", "target": "={{ ($json.verdict || []).length + ' checks' }}",
         "reason": "manual run", "actor": "system", "approved_by": "", "outcome": "success", "detail": ""
     }),
-    node("n-errctx", "Error_Context", "n8n-nodes-base.set", 3.4, [120, 200], {
-        "assignments": {"assignments": [
-            {"id": "e1", "name": "ts", "value": "={{ $now.toISO() }}", "type": "string"},
-            {"id": "e2", "name": "workflow", "value": "sql-data-governance-agent", "type": "string"},
-            {"id": "e3", "name": "run_id", "value": "={{ $execution.id }}", "type": "string"},
-            {"id": "e4", "name": "action", "value": "agent_failure", "type": "string"},
-            {"id": "e5", "name": "target", "value": "={{ $json.check_id || '' }}", "type": "string"},
-            {"id": "e6", "name": "reason", "value": "={{ $json.error && $json.error.message ? $json.error.message : 'agent error' }}", "type": "string"},
-            {"id": "e7", "name": "actor", "value": "system", "type": "string"},
-            {"id": "e8", "name": "approved_by", "value": "", "type": "string"},
-            {"id": "e9", "name": "outcome", "value": "failed", "type": "string"},
-            {"id": "e10", "name": "detail", "value": "", "type": "string"},
-        ]}, "options": {}
-    }),
-    audit_append("n-erraudit", "Error_Audit_Write", [340, 200], {
-        "ts": "={{ $json.ts }}", "workflow": "={{ $json.workflow }}", "run_id": "={{ $json.run_id }}",
-        "action": "={{ $json.action }}", "target": "={{ $json.target }}", "reason": "={{ $json.reason }}",
-        "actor": "system", "approved_by": "", "outcome": "failed", "detail": "={{ $json.detail }}"
-    }),
-]
+] + error_nodes(
+    "sql-data-governance-agent", "agent_failure",
+    target_expr="={{ $json.check_id || '' }}",
+    reason_expr="={{ $json.error && $json.error.message ? $json.error.message : 'agent error' }}",
+    pos_ctx=(120, 200), pos_audit=(340, 200),
+)
 gov_conn = {
     "Manual_Trigger": {"main": [[{"node": "Workflow_Config", "type": "main", "index": 0}]]},
     "Workflow_Config": {"main": [[{"node": "Load_Check_Definitions", "type": "main", "index": 0}]]},

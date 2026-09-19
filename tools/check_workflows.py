@@ -15,7 +15,6 @@ for path in sorted(glob.glob(os.path.join(ROOT, "*", "*.json"))):
     wf = json.load(open(path, encoding="utf-8"))
     name = wf["name"]
     nodes = {n["name"]: n for n in wf["nodes"]}
-    types = {n["name"]: n["type"] for n in wf["nodes"]}
     conns = wf["connections"]
 
     issues = []
@@ -40,7 +39,8 @@ for path in sorted(glob.glob(os.path.join(ROOT, "*", "*.json"))):
                         incoming[edge["node"]].add(ctype)
 
     # 3. every ai_languageModel consumer actually has one wired
-    for nname, ntype in types.items():
+    for nname, ninfo in nodes.items():
+        ntype = ninfo["type"]
         if ntype in AI_LM_CONSUMERS:
             if "ai_languageModel" not in incoming[nname]:
                 issues.append(f"'{nname}' ({ntype.split('.')[-1]}) has no ai_languageModel")
@@ -49,16 +49,17 @@ for path in sorted(glob.glob(os.path.join(ROOT, "*", "*.json"))):
                 issues.append(f"agent '{nname}' has no incoming main connection (PRD 3.3)")
 
     # 4. memory nodes must attach via ai_memory only, never main
-    for nname, ntype in types.items():
+    for nname, ninfo in nodes.items():
+        ntype = ninfo["type"]
         if "memoryBufferWindow" in ntype:
             if "main" in incoming[nname]:
                 issues.append(f"memory '{nname}' is on the main path (PRD 3.4)")
-            src_types = [ct for s, o in conns.get(nname, {}).items() for ct in [s]]
             if conns.get(nname) and "ai_memory" not in conns[nname]:
                 issues.append(f"memory '{nname}' does not output ai_memory")
 
     # 5. orphan nodes (no incoming and no outgoing), triggers excluded
-    for nname, ntype in types.items():
+    for nname, ninfo in nodes.items():
+        ntype = ninfo["type"]
         is_trigger = "rigger" in ntype or ntype.endswith("scheduleTrigger")
         has_out = nname in conns and any(conns[nname].values())
         has_in = bool(incoming[nname])
@@ -66,7 +67,8 @@ for path in sorted(glob.glob(os.path.join(ROOT, "*", "*.json"))):
             issues.append(f"orphan node '{nname}'")
 
     # 6. every agent/classifier/extractor/chain has onError
-    for nname, ntype in types.items():
+    for nname, ninfo in nodes.items():
+        ntype = ninfo["type"]
         if ntype in AI_LM_CONSUMERS:
             if "onError" not in conns.get(nname, {}):
                 issues.append(f"'{nname}' has no onError branch (STANDARDS T1.14)")
